@@ -2,6 +2,7 @@ from crewai import Agent, Crew, Process, Task
 from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.project import agent, crew, CrewBase, task
 
+from app.ai_assistant.tools.finder_tools import FindPersonTool, FindPlaceTool
 from app.ai_assistant.tools.retriever_tool import RetrieverTool
 
 
@@ -19,7 +20,11 @@ class UniversityCrew:
     def university_assistant(self) -> Agent:
         return Agent(
             config=self.agents_config['university_assistant'],  # type: ignore[index]
-            tools=[RetrieverTool()],
+            tools=[
+                RetrieverTool(),
+                FindPersonTool(),
+                FindPlaceTool(),
+            ],
         )
 
     @task
