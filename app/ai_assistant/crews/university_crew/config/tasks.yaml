@@ -1,0 +1,10 @@
+answer_question_task:
+  description: >
+    Respond to the following user message:
+
+    "{question}"
+  expected_output: >
+    A clear, helpful response appropriate to the user's message: a natural reply for
+    greetings or small talk, or an accurate, grounded answer for real questions. If a
+    requested fact is unavailable in the knowledge base, a polite note saying so.
+  agent: university_assistant

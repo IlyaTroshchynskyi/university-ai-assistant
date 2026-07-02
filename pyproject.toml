@@ -1,0 +1,56 @@
+[project]
+name = "crewai-university-assistant"
+version = "0.1.0"
+description = "University assistant using crewAI"
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "crewai[tools]>=1.15.1,<2.0.0",
+    "python-dotenv>=1.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "ruff>=0.15.20",
+]
+
+[project.scripts]
+kickoff = "app.ai_assistant.main:kickoff"
+run_crew = "app.ai_assistant.main:kickoff"
+plot = "app.ai_assistant.main:plot"
+run_with_trigger = "app.ai_assistant.main:run_with_trigger"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[tool.crewai]
+type = "flow"
+
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [".venv"]
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "space"
+
+[tool.ruff.lint]
+select = [
+    "E", # Errors
+    "F", # Pyflakes
+    "I", # isort
+    "T20", # flake8-print
+]
+pydocstyle.convention = 'google'
+
+[tool.ruff.lint.isort]
+known-local-folder = ["tests", "app", "scripts"]
+split-on-trailing-comma = true
+combine-as-imports = true
+case-sensitive = false
+detect-same-package = true
+order-by-type = false  # Sorting of all imported objects (functions, classes, etc.) regardless of their type
+force-sort-within-sections = true  # Don't sort straight-style imports before from-style imports.
