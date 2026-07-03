@@ -1,6 +1,9 @@
 answer_question_task:
   description: >
-    Respond to the following user message:
+    {history}
+    Use the conversation above (if any) to resolve references like "it", "that
+    professor", or "the same day" to what was discussed earlier. Then respond to the
+    following user message:
 
     "{question}"
   expected_output: >

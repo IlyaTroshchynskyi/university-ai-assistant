@@ -1,0 +1,23 @@
+propose_slot_task:
+  description: >
+    {history}
+    From the following request, choose ONE open consultation slot to propose:
+
+    "{question}"
+
+    Call "List Free Slots" to see the real open slots (which are just dates/times), then
+    pick the single open slot that best matches the DATE/TIME the applicant asked for.
+    Separately capture the TOPIC — what they want to discuss — from their message, to be
+    recorded on the booking. If the conversation above shows you already proposed a slot
+    and the applicant now wants a different time or date, propose a DIFFERENT open slot
+    than the one before. Do not book anything yourself.
+
+    Also write a friendly, natural "message" to the applicant that proposes this slot in
+    your own words and asks them to confirm (yes / no) or suggest another time. Write this
+    message in the SAME language the applicant used in their request.
+  expected_output: >
+    The chosen slot as structured data: slot_id, date, start_time, topic (what the
+    applicant wants to discuss, empty if not stated), applicant_name (empty string if
+    none given), and message (your natural proposal text for the applicant, asking them
+    to confirm or suggest another time).
+  agent: booking_assistant

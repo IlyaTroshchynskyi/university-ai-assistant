@@ -1,9 +1,11 @@
 # University Assistant
 
-A university assistant powered by [crewAI](https://crewai.com). An agent answers questions
+A university assistant powered by [crewAI](https://crewai.com). A main agent answers questions
 about the university and decides which tool to use — a knowledge-base retriever, a professor
-lookup, or a campus-place lookup — or replies directly for greetings and small talk. Exposed
-both as a CLI flow and a FastAPI endpoint.
+lookup, or a campus-place lookup — or replies directly for greetings and small talk. Scheduling
+an admissions consultation is routed to a dedicated booking subagent (`BookingCrew`) that
+proposes a slot, then a human-in-the-loop step confirms before anything is booked. Exposed both
+as a CLI flow and a FastAPI endpoint.
 
 ## Installation
 
@@ -46,12 +48,14 @@ a default question and prints the answer.
 
 ## Testing the tools (via the LLM)
 
-The assistant has three tools (`app/ai_assistant/tools/`) and the agent decides which
-one to call:
+The main `university_assistant` agent decides which tool to call:
 
 - **University Knowledge Retriever** — general questions (programs, admissions, policies…).
 - **Find Professor** — look up a named professor/staff member.
 - **Find Campus Place** — look up a named campus place (library, cafeteria, gym…).
+
+Booking is handled separately, by a routed subagent with a human-in-the-loop gate — see
+[Booking with human-in-the-loop](#booking-with-human-in-the-loop) below.
 
 Requires `OPENAI_API_KEY` in `.env`. Ask a question that should route to each tool and
 watch the logs (`verbose=True`) to confirm which tool the agent picked:
@@ -70,24 +74,105 @@ uv run run_with_trigger '{"question": "What programs does the university offer?"
 uv run run_with_trigger '{"question": "hi there"}'
 ```
 
-You can also run it through the API:
+### Booking with human-in-the-loop
+
+Booking does **not** go through the main agent's tool list. A router in the flow
+(`app/ai_assistant/main.py`) uses a small LLM classifier (not keyword matching) to detect a
+booking request and sends it to `BookingCrew`, which **only proposes** a slot (structured
+output, no write). The confirmation gate uses CrewAI's **native** human-in-the-loop:
+`@human_feedback(emit=["approve","reject","change"])` pauses the flow after the proposal. A
+non-blocking `DeferProvider` raises `HumanFeedbackPending` so the paused flow is persisted
+(`@persist`, using the in-memory backend in `app/ai_assistant/persistence.py`) instead of
+blocking on the console; the **next** message for that session resumes it (`from_pending` →
+`resume_async`). The decorator's `llm` collapses the reply into one of the
+outcomes, which route to `@listen("approve")` / `@listen("reject")` / `@listen("change")`. Only
+`approve` runs the write, in plain code (`book_slot`). That is the guard — the model proposes
+and the framework reads intent, but a human's approval is what triggers the booking.
+
+Because the paused flow lives across two turns, you must test this against a **single running
+server** (the same process must handle both turns), not separate `run_with_trigger` calls. Reuse
+one `session_id` across the requests — you can also reply "another time" to get a new slot:
 
 ```bash
 uv run uvicorn app.main:app --reload
-# then POST to http://127.0.0.1:8000/ask  with body {"question": "..."}
-# or open http://127.0.0.1:8000/docs
+# interactive docs: http://127.0.0.1:8000/docs
 ```
+
+```bash
+# see open slots first
+curl 'http://127.0.0.1:8000/slots?status=open'
+
+# turn 1 — propose (NOTHING is booked yet; you get a slot + a confirm prompt)
+curl -X POST http://127.0.0.1:8000/ask -H 'Content-Type: application/json' \
+  -d '{"session_id": "alice", "question": "Book a consultation about programs on 2026-10-06 for John Smith"}'
+
+# still open — proposing does not write
+curl 'http://127.0.0.1:8000/slots?status=booked'
+
+# turn 2 — approve (same session_id): the deterministic gate books it
+curl -X POST http://127.0.0.1:8000/ask -H 'Content-Type: application/json' \
+  -d '{"session_id": "alice", "question": "yes"}'
+
+# now the slot shows status "booked" with booked_by set
+curl 'http://127.0.0.1:8000/slots?status=booked'
+```
+
+Reply `"no"` on turn 2 instead and nothing is written — the proposal is dropped. Reply
+`"another time"` and the booking agent proposes a different open slot (the `change` outcome).
+
+To cancel later, send a message like `"cancel my consultation"` with the same `session_id`.
+The router classifies it as `cancel`, and the `cancel` node frees the slot(s) that session
+booked (tracked in `SESSION_BOOKINGS`) via `cancel_slot`.
+
+`GET /slots` is a read-only view of the in-memory `SLOTS` so you can verify what actually
+changed. `SLOTS` resets when you restart the server; the paused-flow state is kept by an
+in-memory `FlowPersistence` (`app/ai_assistant/persistence.py`) — swap that one class for a
+DynamoDB-backed implementation to survive restarts. For
+persistence you would swap the in-memory stores for a file or database.
+
+### Multi-turn conversations (memory)
+
+`/ask` accepts an optional `session_id`. Reuse the same value across requests and the agent
+receives the recent history of that session, so it can resolve follow-ups like "his email?" or
+"the same day". Omit it and everything shares a single `"default"` session.
+
+```bash
+# turn 1
+curl -X POST http://127.0.0.1:8000/ask -H 'Content-Type: application/json' \
+  -d '{"session_id": "alice", "question": "Who is Professor Ivan?"}'
+
+# turn 2 — "his" resolves to Ivan from the history
+curl -X POST http://127.0.0.1:8000/ask -H 'Content-Type: application/json' \
+  -d '{"session_id": "alice", "question": "What is his email?"}'
+```
+
+History lives in an in-memory `CONVERSATIONS` dict (`app/ai_assistant/main.py`), keyed by
+`session_id`, capped to the last `MAX_HISTORY_MESSAGES` messages and reset on server restart —
+same in-memory caveat as the slots.
 
 ## Understanding the project
 
-- `app/main.py` — FastAPI app (`/ask`, `/health`).
-- `app/ai_assistant/main.py` — the CrewAI flow and the async `answer_question()` entrypoint.
-- `app/ai_assistant/crews/university_crew/` — the crew: the `university_assistant` agent, its
-  task, and the `config/agents.yaml` / `config/tasks.yaml` definitions.
-- `app/ai_assistant/tools/` — the three tools the agent can call.
+- `app/main.py` — FastAPI app (`/ask`, `/slots`, `/health`).
+- `app/ai_assistant/main.py` — the CrewAI flow: the `receive_question` → `@router` → `qa` /
+  `booking` / `cancel` graph, the `@human_feedback` confirmation gate with its `DeferProvider` +
+  `@persist` (pause/resume), the `approve` / `reject` / `change` listeners and the `cancel` node,
+  the in-memory `CONVERSATIONS` history, `SESSION_FLOWS` (session → paused flow id) and
+  `SESSION_BOOKINGS` (session → booked slot ids) maps, and the async `answer_question()` entrypoint.
+- `app/ai_assistant/persistence.py` — `InMemoryFlowPersistence`, the `FlowPersistence` backend the
+  paused flow is saved to (`FLOW_PERSISTENCE`). Replace this one class to persist to DynamoDB, etc.
+- `app/ai_assistant/crews/university_crew/` — the main Q&A crew: the `university_assistant` agent,
+  its task, and the `config/agents.yaml` / `config/tasks.yaml` definitions.
+- `app/ai_assistant/crews/booking_crew/` — the booking subagent: the `booking_assistant` agent
+  that **proposes** a slot (structured `ProposedSlot`, no write), with its own
+  `config/agents.yaml` / `config/tasks.yaml`.
+- `app/ai_assistant/tools/booking_tools.py` — the slot store (`SLOTS`), the `ProposedSlot` model,
+  the plain `book_slot` / `cancel_slot` / `list_open_slots` functions (the single source of truth
+  for slot state), and `ListFreeSlotsTool` (the one tool the agent needs — reading slots). There
+  is no Book/Cancel tool: writing is kept out of the agent's hands and done in code after approval.
 
-The agent's tool-routing behavior lives in the `backstory` in `config/agents.yaml`; each tool's
-`description` tells the agent when to use it.
+The main agent's tool-routing lives in the `backstory` in `university_crew/config/agents.yaml`.
+Booking, however, is routed at the flow level (not as a main-agent tool) so the write can be
+gated behind human confirmation.
 
 ## Support
 

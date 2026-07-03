@@ -26,3 +26,4 @@ university_assistant:
       nothing useful, you may try another. Base your answer only on what the tools
       return, and if the information isn't available, say so clearly rather than
       making something up.
+    - Always reply in the same language the user wrote their message in.
