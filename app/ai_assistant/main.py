@@ -4,11 +4,12 @@ import logging
 from typing import Literal
 
 from crewai import LLM
-from crewai.flow import Flow, human_feedback, listen, or_, persist, router, start, PendingFeedbackContext
+from crewai.flow import Flow, human_feedback, listen, or_, PendingFeedbackContext, persist, router, start
 from crewai.flow.async_feedback import HumanFeedbackPending
 from dotenv import load_dotenv
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from app.ai_assistant.compare_flow import CompareProgramsFlow
 from app.ai_assistant.crews.booking_crew.booking_crew import BookingCrew
 from app.ai_assistant.crews.university_crew.university_crew import UniversityCrew
 from app.ai_assistant.persistence import FLOW_PERSISTENCE
@@ -54,29 +55,45 @@ def _format_history(history: list[dict]) -> str:
     return 'Conversation so far:\n' + '\n'.join(lines) + '\n'
 
 
-def _classify_intent(message: str) -> Literal['booking', 'cancel', 'qa']:
-    """Decide the user's intent via the LLM (not keywords)."""
+class IntentDecision(BaseModel):
+    """Structured output for intent routing."""
+
+    intent: Literal['booking', 'cancel', 'qa', 'compare'] = Field(
+        description='The single best-matching intent for the user message.'
+    )
+
+
+def _classify_intent(message: str) -> Literal['booking', 'cancel', 'qa', 'compare']:
+    """Decide the user's intent via the LLM (structured output, not keywords)."""
     prompt = (
-        'You classify a user message for a university assistant. Answer with exactly one '
-        'word, no punctuation:\n'
+        'You classify a user message for a university assistant. Choose the single best '
+        'intent:\n'
         '- "cancel" if the user wants to cancel or call off an existing consultation or '
         'appointment they already have.\n'
+        '- "compare" if the user wants to compare two university programs against each '
+        'other.\n'
         '- "booking" if the user wants to schedule, book, arrange, or reschedule a '
         'consultation.\n'
         '- "qa" for anything else (questions, greetings, small talk).\n\n'
         f'Message: "{message}"'
     )
-    reply = _CLASSIFIER_LLM.call(prompt).strip().lower()
-    if 'cancel' in reply:
-        return 'cancel'
-    if 'booking' in reply:
-        return 'booking'
-    return 'qa'
+    return _CLASSIFIER_LLM.call(prompt, response_model=IntentDecision).intent
+
+
+class ConfirmationCheck(BaseModel):
+    """Structured output: is the message a reply to the pending booking confirmation?"""
+
+    kind: Literal['reply', 'new'] = Field(
+        description=(
+            '"reply" if the message answers the pending booking confirmation (accepting, '
+            'declining, or asking for another time); "new" if it is an unrelated new request.'
+        )
+    )
 
 
 def _is_confirmation_reply(message: str, proposed: ProposedSlot | None) -> bool:
     """True if `message` answers a pending booking confirmation (accept / decline / ask
-    for another time), rather than an unrelated new request. LLM, not keywords."""
+    for another time), rather than an unrelated new request. Structured output, not keywords."""
     context = ''
     if proposed:
         context = (
@@ -88,11 +105,10 @@ def _is_confirmation_reply(message: str, proposed: ProposedSlot | None) -> bool:
         f'{context}'
         "Decide whether the user's next message is a reply to that confirmation "
         '(accepting, declining, or asking for a different time/date) or an unrelated new '
-        'request (a different question or a brand-new topic).\n'
-        'Answer with exactly one word: "reply" or "new".\n\n'
+        'request (a different question or a brand-new topic).\n\n'
         f'Message: "{message}"'
     )
-    return 'reply' in _CLASSIFIER_LLM.call(prompt).strip().lower()
+    return _CLASSIFIER_LLM.call(prompt, response_model=ConfirmationCheck).kind == 'reply'
 
 
 def _phrase(facts: str, user_message: str) -> str:
@@ -125,8 +141,12 @@ def _resolve_slot(proposal: ProposedSlot | None, previous: ProposedSlot | None) 
         return None
     s = candidates[0]
     return ProposedSlot(
-        slot_id=s['id'], date=s['date'], start_time=s['start_time'],
-        topic='', applicant_name='', message='',
+        slot_id=s['id'],
+        date=s['date'],
+        start_time=s['start_time'],
+        topic='',
+        applicant_name='',
+        message='',
     )
 
 
@@ -154,10 +174,18 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         logger.info('Question: %s', self.state.question)
 
     @router(receive_question)
-    def route_intent(self) -> Literal['qa', 'booking', 'cancel']:
+    def route_intent(self) -> Literal['qa', 'booking', 'cancel', 'compare']:
         intent = _classify_intent(self.state.question)
         logger.info('Routed intent: %s', intent)
         return intent
+
+    @listen('compare')
+    async def compare_programs(self):
+        # Delegate to the standalone fan-out/fan-in sub-flow, then adopt its answer.
+        logger.info('Comparing programs for: %s', self.state.question)
+        sub = CompareProgramsFlow()
+        await sub.kickoff_async(inputs={'question': self.state.question})
+        self.state.answer = sub.state.answer
 
     @listen('qa')
     async def answer_question(self):
@@ -266,7 +294,7 @@ class UniversityAssistantFlow(Flow[AssistantState]):
             )
         logger.info('Cancelled slots %s for session %s', cancelled, self.state.session_id)
 
-    @listen(or_(answer_question, do_book, do_reject, cancel_booking))
+    @listen(or_(answer_question, do_book, do_reject, cancel_booking, compare_programs))
     def show_answer(self):
         logger.info('Answer: %s', self.state.answer)
 

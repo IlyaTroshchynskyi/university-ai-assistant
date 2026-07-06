@@ -4,8 +4,9 @@ A university assistant powered by [crewAI](https://crewai.com). A main agent ans
 about the university and decides which tool to use — a knowledge-base retriever, a professor
 lookup, or a campus-place lookup — or replies directly for greetings and small talk. Scheduling
 an admissions consultation is routed to a dedicated booking subagent (`BookingCrew`) that
-proposes a slot, then a human-in-the-loop step confirms before anything is booked. Exposed both
-as a CLI flow and a FastAPI endpoint.
+proposes a slot, then a human-in-the-loop step confirms before anything is booked. Comparing two
+programs is routed to a `CompareProgramsFlow` that researches both in parallel (fan-out) and
+merges the results (fan-in). Exposed both as a CLI flow and a FastAPI endpoint.
 
 ## Installation
 
@@ -150,6 +151,36 @@ History lives in an in-memory `CONVERSATIONS` dict (`app/ai_assistant/main.py`),
 `session_id`, capped to the last `MAX_HISTORY_MESSAGES` messages and reset on server restart —
 same in-memory caveat as the slots.
 
+### Comparing two programs (parallel fan-out / fan-in)
+
+Asking to compare two programs is routed (intent `compare`) to a dedicated
+`CompareProgramsFlow` (`app/ai_assistant/compare_flow.py`) — an explicit fan-out / fan-in
+graph. It extracts the two program names (structured output), then **researches both programs
+in parallel** (two `@listen` branches that CrewAI runs concurrently via `asyncio.gather`, each
+running the `program_researcher` agent with the retriever tool and writing its own state key),
+and finally a `merge` node (a plain, tool-free LLM call) folds the two summaries into one
+side-by-side answer.
+
+Test it via the CLI or the API — no `session_id` needed, it is single-turn:
+
+```bash
+# CLI — watch the logs to see the two research branches run at the same time
+uv run run_with_trigger '{"question": "Compare the Computer Science and Data Science programs"}'
+```
+
+```bash
+# API
+uv run uvicorn app.main:app --reload
+curl -X POST http://127.0.0.1:8000/ask -H 'Content-Type: application/json' \
+  -d '{"question": "Compare the Computer Science and Data Science programs"}'
+```
+
+With `verbose=True` you will see `research_a` and `research_b` **both start before either
+finishes** — that is the true parallelism (`uv run plot` renders the main flow, including the
+`compare` node; the branch-level fan-out lives inside `CompareProgramsFlow`). The retriever is
+still a placeholder, so the researched facts are stub text; the routing, parallelism and merge
+are fully real and observable.
+
 ## Understanding the project
 
 - `app/main.py` — FastAPI app (`/ask`, `/slots`, `/health`).
@@ -165,6 +196,11 @@ same in-memory caveat as the slots.
 - `app/ai_assistant/crews/booking_crew/` — the booking subagent: the `booking_assistant` agent
   that **proposes** a slot (structured `ProposedSlot`, no write), with its own
   `config/agents.yaml` / `config/tasks.yaml`.
+- `app/ai_assistant/compare_flow.py` — `CompareProgramsFlow`, the fan-out / fan-in graph:
+  `extract_programs` (structured `ProgramPair`) → parallel `research_a` / `research_b` →
+  `merge`. Reached via the `compare` intent in the main flow.
+- `app/ai_assistant/crews/compare_crew/` — the single `program_researcher` agent (with the
+  retriever tool) that researches one program; the flow fans it out per program.
 - `app/ai_assistant/tools/booking_tools.py` — the slot store (`SLOTS`), the `ProposedSlot` model,
   the plain `book_slot` / `cancel_slot` / `list_open_slots` functions (the single source of truth
   for slot state), and `ListFreeSlotsTool` (the one tool the agent needs — reading slots). There

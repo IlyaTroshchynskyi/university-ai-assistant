@@ -1,7 +1,7 @@
 # Compare Two Programs — fan-out / fan-in CrewAI Flow
 
 **Date:** 2026-07-06
-**Status:** Design approved (pending spec review)
+**Status:** Implemented (skeleton) — tool + main-flow wiring pending
 
 ## Overview
 
@@ -17,9 +17,10 @@ same shape natively, with no second orchestrator.
 
 ## Goals
 
-- An explicit fan-out / fan-in graph: one node splits into two concurrent retrieval
+- An explicit fan-out / fan-in graph: one node splits into two concurrent research
   branches, a merge node waits for both and produces the comparison.
-- **Genuine concurrency** — the two retrievals overlap in time, not run one-after-another.
+- **Genuine, deterministic concurrency** — the two lookups overlap in time, and the
+  parallelism is a visible part of the graph (not hidden inside an agent loop).
 - Reachable end-to-end from the running assistant via `/ask`.
 - Teach the CrewAI equivalent of LangGraph's concurrent-write handling.
 
@@ -31,28 +32,40 @@ same shape natively, with no second orchestrator.
 - Connecting a real vector DB (the retriever stays a placeholder; the graph mechanics
   are observable regardless).
 
-## Why CrewAI can do this (verified)
+## Two things verified against CrewAI 1.15.1 source
 
-Inspected CrewAI **1.15.1** source (`crewai.flow.flow.Flow._execute_listeners`):
-listeners triggered by the same upstream method are executed **in parallel** via
-`asyncio.gather(*tasks)`, and `and_()` fan-in is supported. So two `@listen(extract)`
-async nodes run concurrently, and a `@listen(and_(a, b))` node waits for both. The
-"true parallel branches that merge" requirement is met on CrewAI natively.
+1. **Flow runs same-trigger listeners in parallel.** `Flow._execute_listeners` runs all
+   listeners triggered by the same upstream method via `asyncio.gather(*tasks)`, and
+   `and_()` fan-in is supported. So two `@listen(extract)` async nodes run concurrently
+   and a `@listen(and_(a, b))` node waits for both.
+
+2. **A single agent *can* run tools in parallel — but non-deterministically.**
+   `CrewAgentExecutor._handle_native_tool_calls` runs multiple tool calls from one LLM
+   turn through a `ThreadPoolExecutor` (unless a tool sets `result_as_answer` or
+   `max_usage_count`, which forces sequential first-only). That means the "one agent
+   fires two research tools at once" design is technically possible, **but** the
+   parallelism only happens if the model chooses to emit both tool calls in a single
+   turn, and it is hidden inside the agent loop (not plottable, not guaranteed).
+
+Because this is a learning exercise about an **explicit parallel graph**, we express the
+fan-out at the **Flow level** (finding #1), which is deterministic and visible, rather
+than relying on an agent batching its tool calls (finding #2).
 
 ## Architecture
 
-New self-contained flow in `app/ai_assistant/compare_flow.py`:
+Self-contained flow in `app/ai_assistant/compare_flow.py`:
 
 ```
-          extract_programs   (@start)          LLM extracts 2 program names
+          extract_programs   (@start)          plain LLM call: extract 2 program names
                  │
-        ┌────────┴────────┐                    fan-out: both listeners run
-        ▼                 ▼                     CONCURRENTLY (asyncio.gather)
-   retrieve_a         retrieve_b                each: await retrieve(program) -> own key
+        ┌────────┴────────┐                    fan-out: both listeners of the same
+        ▼                 ▼                     trigger run CONCURRENTLY (asyncio.gather)
+   research_a         research_b                each runs the research AGENT for ONE
+        │                 │                     program -> writes its OWN state key
         └────────┬────────┘
                  ▼
-              merge   (@listen(and_(retrieve_a, retrieve_b)))   fan-in: waits for both,
-                 │                                               one LLM call -> side-by-side
+              merge   (@listen(and_(research_a, research_b)))   fan-in: waits for both,
+                 │                                              plain LLM call -> side-by-side
                  ▼
               answer
 ```
@@ -64,8 +77,8 @@ class CompareState(BaseModel):
     question: str = ''
     program_a: str = ''
     program_b: str = ''
-    info_a: str = ''      # written ONLY by retrieve_a
-    info_b: str = ''      # written ONLY by retrieve_b
+    info_a: str = ''      # written ONLY by research_a
+    info_b: str = ''      # written ONLY by research_b
     answer: str = ''
 ```
 
@@ -85,25 +98,35 @@ loop (`asyncio.gather`), not in threads:
   stale read: the sibling branch's write is lost. This is exactly what a LangGraph
   reducer protects against, and why CrewAI's answer is "use separate keys."
 
-The `info_a` / `info_b` split will carry a short comment documenting this contrast so
-the learning point is explicit in the code.
+The `info_a` / `info_b` split carries a comment documenting this contrast so the learning
+point is explicit in the code.
 
-## Components & reuse
+## Components
 
-- **`retrieve(query: str) -> str`** — a plain `async` function extracted into
-  `app/ai_assistant/tools/retriever_tool.py` as the single source of truth for a
-  lookup. `RetrieverTool._run` is refactored to call it. This mirrors the existing
-  `booking_tools.py` pattern (plain `list_open_slots` + thin `BaseTool`). The two
-  retrieval branches call `retrieve()` directly for genuine parallel async I/O.
-- **`extract_programs`** (`@start`) — a small structured LLM call (same approach as
-  `_CLASSIFIER_LLM` in `main.py`) that pulls the two program names from `question` into
-  `program_a` / `program_b`.
-- **`retrieve_a` / `retrieve_b`** (`@listen(extract_programs)`, `async`) — each awaits
-  `retrieve(program_x)` and writes its own `info_x` key.
-- **`merge`** (`@listen(and_(retrieve_a, retrieve_b))`) — one LLM call that turns
-  `info_a` + `info_b` into a coherent side-by-side comparison written to `answer`.
+**One agent total** (research). Extraction and merge are plain, tool-free LLM calls.
 
-## Integration with the main flow (`main.py`)
+- **`ProgramResearchCrew`** (`crews/compare_crew/compare_crew.py`) — a single-agent crew
+  that researches **one** program. The flow fans it out (one kickoff per program), so the
+  two runs execute in parallel. Its `program_researcher` agent carries the knowledge
+  retriever tool (added by the user; a `# TODO` placeholder marks the spot). Config in
+  `config/research_agents.yaml` + `config/research_tasks.yaml`.
+- **`extract_programs`** (`@start`) — a plain `_LLM.call` that pulls the two program
+  names out of `question` into `program_a` / `program_b` (parsed via `_parse_pair`).
+- **`research_a` / `research_b`** (`@listen(extract_programs)`, `async`) — each awaits
+  `ProgramResearchCrew().crew().kickoff_async(...)` for its program and writes its own
+  `info_x` key.
+- **`merge`** (`@listen(and_(research_a, research_b))`) — a plain `_LLM.call` that turns
+  `info_a` + `info_b` into the side-by-side comparison in `answer`. It has **no tool on
+  purpose**: it must not fetch or invent facts beyond the two summaries.
+
+### Why merge is not a second agent
+
+The fan-in is a pure text transform over two ready-made summaries — no tool use, no
+reasoning loop, no crew machinery needed. A tool-wielding "comparison agent" would also
+risk re-fetching and inventing facts beyond the summaries. So merge stays a plain LLM
+call. (An earlier draft used a separate `ComparisonCrew`; it was removed.)
+
+## Integration with the main flow (`main.py`) — pending
 
 - `_classify_intent` gains a `'compare'` outcome (classifier prompt updated); its return
   type becomes `Literal['booking', 'cancel', 'qa', 'compare']`.
@@ -117,24 +140,26 @@ the learning point is explicit in the code.
       self.state.answer = sub.state.answer
   ```
 - `compare_programs` is added to `show_answer`'s `or_(...)`.
-- Reachable via `POST /ask` with body `{"question": "compare the CS and DS programs"}`.
+- Reachable via `POST /ask` with `{"question": "compare the CS and DS programs"}`.
 
 ## Error handling
 
 - The compare flow is single-turn and does not pause (no human-in-the-loop), so no
   persistence/resume concerns.
-- If `retrieve()` raises, CrewAI's listener wrapper logs it; v1 lets the branch fail and
-  the merge sees an empty `info_x`. Hardening (per-branch fallback text) is future work.
+- If a research kickoff raises, CrewAI's listener wrapper logs it; v1 lets the branch
+  fail and merge sees an empty `info_x`. Per-branch fallback text is future work.
+- If only one program is named, `research_b` gets an empty program and returns empty
+  `info_b` (see `_research`'s empty-program guard).
 
 ## Testing
 
 Per project convention, exercise through the running assistant / LLM, not by calling
 nodes directly:
 
-1. Start the server (`uv run uvicorn app.main:app --reload`).
+1. Add the retriever tool to `program_researcher`, then start the server.
 2. `POST /ask` with a comparison question.
-3. Confirm in the `verbose` logs that `retrieve_a` and `retrieve_b` **start before
-   either finishes** (interleaved) — evidence of true concurrency.
+3. Confirm in the `verbose` logs that `research_a` and `research_b` **start before either
+   finishes** (interleaved) — evidence of true concurrency.
 4. Confirm the answer is a single side-by-side comparison.
 5. `plot()` the compare flow to visually verify the fan-out / fan-in shape.
 
@@ -147,9 +172,14 @@ structure and concurrency are still fully observable.
   empty); the merge handles a thin/empty side. A proper "too few programs → ask to
   clarify" router is deferred to a later iteration.
 
-## Files touched
+## Files
 
-- `app/ai_assistant/compare_flow.py` — **new**: `CompareState`, `CompareProgramsFlow`.
-- `app/ai_assistant/tools/retriever_tool.py` — extract plain `retrieve()`, thin the tool.
+- `app/ai_assistant/compare_flow.py` — `CompareState`, `CompareProgramsFlow`, the plain
+  `extract`/`merge` LLM steps, `_parse_pair`, `_research`. **Done.**
+- `app/ai_assistant/crews/compare_crew/compare_crew.py` — `ProgramResearchCrew`. **Done.**
+- `app/ai_assistant/crews/compare_crew/config/research_agents.yaml`,
+  `research_tasks.yaml` — the research agent + task. **Done.**
+- Retriever tool on `program_researcher` — **pending (user adds).**
 - `app/ai_assistant/main.py` — `'compare'` intent + `compare_programs` node + `or_`.
-- `README.md` — document the compare capability (follow-up).
+  **Pending.**
+- `README.md` — document the compare capability. **Pending.**

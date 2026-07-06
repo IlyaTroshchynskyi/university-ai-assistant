@@ -1,0 +1,17 @@
+research_program_task:
+  description: >
+    Research the university program "{program}" so it can later be compared with another
+    program. The applicant's original request was: "{question}".
+
+    Make a SINGLE call to the knowledge retriever with just the program name ("{program}")
+    — one call returns everything known about the program. Do NOT call the retriever more
+    than once and do NOT query it per topic. Then write your summary from what that one
+    call returned, covering focus, core courses, duration, admission requirements, tuition
+    and career outcomes. Only report facts that were actually returned — mark anything
+    missing as unknown. Do NOT compare it to any other program and do NOT make a
+    recommendation; that happens in a later step.
+  expected_output: >
+    A concise, factual summary of the "{program}" program covering focus, core courses,
+    duration, admission requirements, tuition and career outcomes, with any missing
+    details explicitly marked as unknown.
+  agent: program_researcher
