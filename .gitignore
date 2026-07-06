@@ -18,5 +18,10 @@ build/
 # CrewAI output
 output/
 
+# Local SQLite stores (flow state + conversation history)
+*.sqlite3
+*.db
+
 # IDE
 .idea/
+app_state.sqlite3*

@@ -11,7 +11,10 @@ from __future__ import annotations
 from typing import Any, TYPE_CHECKING
 
 from crewai.flow.persistence.base import FlowPersistence
+from crewai.flow.persistence.sqlite import SQLiteFlowPersistence
 from pydantic import BaseModel
+
+from app.ai_assistant.db import DB_PATH, STORE_BACKEND
 
 if TYPE_CHECKING:
     from crewai.flow.async_feedback.types import PendingFeedbackContext
@@ -61,6 +64,10 @@ class InMemoryFlowPersistence(FlowPersistence):
         _PENDING.pop(flow_uuid, None)
 
 
-# The single instance the flow uses for both @persist and from_pending. Swap this line
-# for a DynamoFlowPersistence() later.
-FLOW_PERSISTENCE = InMemoryFlowPersistence()
+# The single instance the flow uses for both @persist and from_pending. Backend is chosen
+# by STORE_BACKEND: 'sqlite' (default, CrewAI's built-in SQLiteFlowPersistence, survives
+# restarts) or 'memory' (the in-memory class above). The in-memory one is kept as an option.
+if STORE_BACKEND == 'memory':
+    FLOW_PERSISTENCE: FlowPersistence = InMemoryFlowPersistence()
+else:
+    FLOW_PERSISTENCE = SQLiteFlowPersistence(DB_PATH)

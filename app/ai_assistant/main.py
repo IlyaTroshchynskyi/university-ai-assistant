@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from app.ai_assistant.compare_flow import CompareProgramsFlow
+from app.ai_assistant.conversation_store import CONVERSATION_STORE
 from app.ai_assistant.crews.booking_crew.booking_crew import BookingCrew
 from app.ai_assistant.crews.university_crew.university_crew import UniversityCrew
 from app.ai_assistant.persistence import FLOW_PERSISTENCE
@@ -27,8 +28,7 @@ MAX_HISTORY_MESSAGES = 10  # how many recent messages to feed back into the prom
 # keyword matching (handles paraphrases, other languages, indirect phrasing).
 _CLASSIFIER_LLM = LLM(model='gpt-4o-mini', temperature=0)
 
-# In-memory conversation history, keyed by session_id. TODO: swap for a real store.
-CONVERSATIONS: dict[str, list[dict]] = {}
+# Conversation history lives in CONVERSATION_STORE (SQLite by default; in-memory optional).
 
 # Sessions whose flow is paused waiting for a human's booking confirmation, mapped to
 # the paused flow's id so the next message can resume it. TODO: swap for a real store.
@@ -333,7 +333,7 @@ async def answer_question(question: str, session_id: str = DEFAULT_SESSION) -> s
     answers that confirmation, this resumes it with the message as the human's feedback;
     otherwise it starts a fresh flow.
     """
-    history = CONVERSATIONS.setdefault(session_id, [])
+    history = CONVERSATION_STORE.history(session_id)
 
     flow, result = await _resume_or_start(question, history, session_id)
 
@@ -344,8 +344,8 @@ async def answer_question(question: str, session_id: str = DEFAULT_SESSION) -> s
     else:
         SESSION_FLOWS.pop(session_id, None)
 
-    history.append({'role': 'user', 'content': question})
-    history.append({'role': 'assistant', 'content': answer})
+    CONVERSATION_STORE.add(session_id, 'user', question)
+    CONVERSATION_STORE.add(session_id, 'assistant', answer)
     return answer
 
 
