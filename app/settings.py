@@ -14,6 +14,9 @@ class Settings(BaseSettings):
 
     OPENAI_API_KEY: str  # required — read from OPENAI_API_KEY
     MODEL_NAME: str = 'gpt-4o-mini'  # read from MODEL; used everywhere unless overridden
+    EMBEDDING_MODEL: str = 'text-embedding-3-small'  # OpenAI embedding model for the vector store
+    QDRANT_URL: str = 'http://localhost:6333'  # the Qdrant service (see docker-compose.yml)
+    QDRANT_COLLECTION: str = 'university_kb'  # default collection the vector service reads/writes
 
 
 @lru_cache

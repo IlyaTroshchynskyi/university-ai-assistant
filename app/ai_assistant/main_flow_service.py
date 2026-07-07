@@ -7,6 +7,7 @@ from app.ai_assistant.conversation_store import CONVERSATION_STORE
 from app.ai_assistant.persistence import FLOW_PERSISTENCE
 from app.ai_assistant.schemas import ConfirmationCheck, IntentDecision, IntentType
 from app.ai_assistant.tools.booking_tools import list_open_slots, ProposedSlot
+from app.settings import build_llm
 
 DEFAULT_SESSION = 'default'
 MAX_HISTORY_MESSAGES = 10  # how many recent messages to feed back into the prompt
@@ -164,3 +165,9 @@ class MainFlowService:
         recent = history[-MAX_HISTORY_MESSAGES:]
         lines = [f'{m["role"]}: {m["content"]}' for m in recent]
         return 'Conversation so far:\n' + '\n'.join(lines) + '\n'
+
+
+def get_main_flow_service() -> MainFlowService:
+    """Default wiring of the flow service from the cached LLM. Construct ``MainFlowService``
+    directly (with a fake LLM) in tests, or override it via FastAPI ``dependency_overrides``."""
+    return MainFlowService(build_llm())

@@ -1,13 +1,13 @@
 import asyncio
 from typing import Annotated
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel
 
-from app.ai_assistant.main_flow_service import MainFlowService
+from app.ai_assistant.main_flow_service import get_main_flow_service, MainFlowService
 from app.ai_assistant.tools.booking_tools import SLOTS
-from app.settings import build_llm
+from app.ai_assistant.university_knowladge.knowledge_service import get_knowledge_service, KnowledgeService
 
 app = FastAPI(title='University Assistant')
 
@@ -44,6 +44,11 @@ class AskResponse(BaseModel):
     answer: str
 
 
+class IngestResponse(BaseModel):
+    source: str
+    chunks: int
+
+
 @app.get('/health')
 async def health() -> dict[str, str]:
     return {'status': 'ok'}
@@ -51,6 +56,7 @@ async def health() -> dict[str, str]:
 
 @app.post('/ask', response_model=AskResponse)
 async def ask(
+    service: Annotated[MainFlowService, Depends(get_main_flow_service)],
     question: str = Form(''),
     session_id: str = Form('default'),
     files: Annotated[list[UploadFile] | None, File()] = None,
@@ -58,8 +64,23 @@ async def ask(
     """Ask a question and/or upload documents (multipart/form-data). If any files are
     attached, the turn is routed to document verification."""
     images = await asyncio.gather(*(f.read() for f in files or []))
-    answer = await MainFlowService(build_llm()).answer_question(question, session_id, images)
+    answer = await service.answer_question(question, session_id, images)
     return AskResponse(answer=answer)
+
+
+@app.post('/documents', response_model=IngestResponse)
+async def ingest_document(
+    file: Annotated[UploadFile, File()],
+    knowledge: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+) -> IngestResponse:
+    """Ingest a PDF into the knowledge base: extract text, split into chunks, embed and store
+    them in Qdrant so the retriever can find them."""
+    if file.content_type != 'application/pdf' and not (file.filename or '').lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail='Only PDF files are supported.')
+
+    source = file.filename or 'upload.pdf'
+    chunks = await knowledge.ingest_pdf(await file.read(), source)
+    return IngestResponse(source=source, chunks=chunks)
 
 
 @app.get('/slots')
