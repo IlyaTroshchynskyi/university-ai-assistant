@@ -18,17 +18,17 @@ SEPARATE keys (`info_a` / `info_b`), so there is nothing to merge and nothing to
 
 import logging
 
-from crewai import LLM
 from crewai.flow import and_, Flow, listen, start
 from pydantic import BaseModel, Field
 
 from app.ai_assistant.crews.compare_crew.compare_crew import ProgramResearchCrew
+from app.settings import build_llm
 
 logger = logging.getLogger(__name__)
 
 # Small, cheap LLM used for the two plain (non-agentic) steps: extracting the program
 # names and writing the final side-by-side comparison. Research is the only agentic part.
-_LLM = LLM(model='gpt-4o-mini', temperature=0)
+_LLM = build_llm()
 
 
 class ProgramPair(BaseModel):

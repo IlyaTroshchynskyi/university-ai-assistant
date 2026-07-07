@@ -649,6 +649,7 @@ source = { editable = "." }
 dependencies = [
     { name = "crewai", extra = ["tools"] },
     { name = "fastapi" },
+    { name = "pydantic-settings" },
     { name = "python-dotenv" },
     { name = "ruff" },
     { name = "uvicorn", extra = ["standard"] },
@@ -663,6 +664,7 @@ dev = [
 requires-dist = [
     { name = "crewai", extras = ["tools"], specifier = ">=1.15.1,<2.0.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "pydantic-settings", specifier = ">=2.10.1" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "ruff", specifier = ">=0.15.20" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },

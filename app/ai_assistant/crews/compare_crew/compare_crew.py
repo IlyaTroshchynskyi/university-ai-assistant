@@ -3,6 +3,7 @@ from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.project import agent, crew, CrewBase, task
 
 from app.ai_assistant.tools.retriever_tool import RetrieverTool
+from app.settings import build_llm
 
 
 @CrewBase
@@ -20,6 +21,7 @@ class ProgramResearchCrew:
     def program_researcher(self) -> Agent:
         return Agent(
             config=self.agents_config['program_researcher'],  # type: ignore[index]
+            llm=build_llm(),
             tools=[
                 RetrieverTool(),
             ],

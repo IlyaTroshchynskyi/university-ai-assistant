@@ -3,6 +3,7 @@ from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.project import agent, crew, CrewBase, task
 
 from app.ai_assistant.tools.booking_tools import ListFreeSlotsTool, ProposedSlot
+from app.settings import build_llm
 
 
 @CrewBase
@@ -20,6 +21,7 @@ class BookingCrew:
     def booking_assistant(self) -> Agent:
         return Agent(
             config=self.agents_config['booking_assistant'],  # type: ignore[index]
+            llm=build_llm(),
             tools=[
                 ListFreeSlotsTool(),
             ],

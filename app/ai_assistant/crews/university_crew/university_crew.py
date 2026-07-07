@@ -4,6 +4,7 @@ from crewai.project import agent, crew, CrewBase, task
 
 from app.ai_assistant.tools.finder_tools import FindPersonTool, FindPlaceTool
 from app.ai_assistant.tools.retriever_tool import RetrieverTool
+from app.settings import build_llm
 
 
 @CrewBase
@@ -20,6 +21,7 @@ class UniversityCrew:
     def university_assistant(self) -> Agent:
         return Agent(
             config=self.agents_config['university_assistant'],  # type: ignore[index]
+            llm=build_llm(),
             tools=[
                 RetrieverTool(),
                 FindPersonTool(),

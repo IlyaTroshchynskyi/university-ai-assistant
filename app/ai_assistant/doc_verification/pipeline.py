@@ -5,11 +5,8 @@ per-document extraction, no separate deterministic rules step, no separate expla
 
 from datetime import date
 
-from crewai import LLM
-
 from app.ai_assistant.doc_verification.schemas import Verdict
-
-_LLM = LLM(model='gpt-4o-mini', temperature=0)  # cheap and vision-capable
+from app.settings import build_llm
 
 
 def _image_data_uri(image_b64: str) -> str:
@@ -58,5 +55,5 @@ async def verify(images_b64: list[str]) -> Verdict:
 
     content = [{'type': 'text', 'text': _criteria_prompt()}]
     content += [{'type': 'image_url', 'image_url': {'url': _image_data_uri(img)}} for img in images_b64]
-
-    return await _LLM.acall(messages=[{'role': 'user', 'content': content}], response_model=Verdict)
+    llm = build_llm()
+    return await llm.acall(messages=[{'role': 'user', 'content': content}], response_model=Verdict)

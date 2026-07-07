@@ -5,8 +5,9 @@ from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel
 
-from app.ai_assistant.main import answer_question
+from app.ai_assistant.main_flow_service import MainFlowService
 from app.ai_assistant.tools.booking_tools import SLOTS
+from app.settings import build_llm
 
 app = FastAPI(title='University Assistant')
 
@@ -57,7 +58,7 @@ async def ask(
     """Ask a question and/or upload documents (multipart/form-data). If any files are
     attached, the turn is routed to document verification."""
     images = await asyncio.gather(*(f.read() for f in files or []))
-    answer = await answer_question(question, session_id, images)
+    answer = await MainFlowService(build_llm()).answer_question(question, session_id, images)
     return AskResponse(answer=answer)
 
 
