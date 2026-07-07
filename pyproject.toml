@@ -27,6 +27,10 @@ packages = ["app"]
 [tool.crewai]
 type = "flow"
 
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
 
 [tool.ruff]
 line-length = 120
@@ -54,3 +58,8 @@ case-sensitive = false
 detect-same-package = true
 order-by-type = false  # Sorting of all imported objects (functions, classes, etc.) regardless of their type
 force-sort-within-sections = true  # Don't sort straight-style imports before from-style imports.
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

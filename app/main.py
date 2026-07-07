@@ -1,4 +1,8 @@
-from fastapi import FastAPI
+import asyncio
+from typing import Annotated
+
+from fastapi import FastAPI, File, Form, UploadFile
+from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel
 
 from app.ai_assistant.main import answer_question
@@ -7,9 +11,32 @@ from app.ai_assistant.tools.booking_tools import SLOTS
 app = FastAPI(title='University Assistant')
 
 
-class AskRequest(BaseModel):
-    question: str
-    session_id: str = 'default'
+def _walk(node: object):
+    """Yield every dict inside a nested JSON structure."""
+    if isinstance(node, dict):
+        yield node
+        for value in node.values():
+            yield from _walk(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _walk(value)
+
+
+def _openapi() -> dict:
+    """Swagger UI renders a file picker for a single UploadFile but not for the items of a
+    list[UploadFile]: pydantic v2 emits the OpenAPI 3.1 ``contentMediaType`` encoding, which
+    Swagger UI doesn't recognise inside arrays. Rewrite it to the older ``format: binary`` so
+    multi-file upload works in the docs UI."""
+    if not app.openapi_schema:
+        schema = get_openapi(title=app.title, version=app.version, routes=app.routes)
+        for node in _walk(schema):
+            if node.get('type') == 'string' and node.pop('contentMediaType', None):
+                node['format'] = 'binary'
+        app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = _openapi
 
 
 class AskResponse(BaseModel):
@@ -22,8 +49,15 @@ async def health() -> dict[str, str]:
 
 
 @app.post('/ask', response_model=AskResponse)
-async def ask(request: AskRequest) -> AskResponse:
-    answer = await answer_question(request.question, request.session_id)
+async def ask(
+    question: str = Form(''),
+    session_id: str = Form('default'),
+    files: Annotated[list[UploadFile] | None, File()] = None,
+) -> AskResponse:
+    """Ask a question and/or upload documents (multipart/form-data). If any files are
+    attached, the turn is routed to document verification."""
+    images = await asyncio.gather(*(f.read() for f in files or []))
+    answer = await answer_question(question, session_id, images)
     return AskResponse(answer=answer)
 
 

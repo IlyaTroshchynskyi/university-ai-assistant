@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import asyncio
+import base64
 import logging
 from typing import Literal
 
@@ -13,6 +14,7 @@ from app.ai_assistant.compare_flow import CompareProgramsFlow
 from app.ai_assistant.conversation_store import CONVERSATION_STORE
 from app.ai_assistant.crews.booking_crew.booking_crew import BookingCrew
 from app.ai_assistant.crews.university_crew.university_crew import UniversityCrew
+from app.ai_assistant.doc_verification.pipeline import verify
 from app.ai_assistant.persistence import FLOW_PERSISTENCE
 from app.ai_assistant.tools.booking_tools import book_slot, cancel_slot, list_open_slots, ProposedSlot
 
@@ -20,7 +22,6 @@ load_dotenv()  # load OPENAI_API_KEY etc. from .env
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_QUESTION = 'What programs does the university offer?'
 DEFAULT_SESSION = 'default'
 MAX_HISTORY_MESSAGES = 10  # how many recent messages to feed back into the prompt
 
@@ -63,7 +64,7 @@ class IntentDecision(BaseModel):
     )
 
 
-def _classify_intent(message: str) -> Literal['booking', 'cancel', 'qa', 'compare']:
+async def _classify_intent(message: str) -> Literal['booking', 'cancel', 'qa', 'compare']:
     """Decide the user's intent via the LLM (structured output, not keywords)."""
     prompt = (
         'You classify a user message for a university assistant. Choose the single best '
@@ -77,7 +78,7 @@ def _classify_intent(message: str) -> Literal['booking', 'cancel', 'qa', 'compar
         '- "qa" for anything else (questions, greetings, small talk).\n\n'
         f'Message: "{message}"'
     )
-    return _CLASSIFIER_LLM.call(prompt, response_model=IntentDecision).intent
+    return (await _CLASSIFIER_LLM.acall(prompt, response_model=IntentDecision)).intent
 
 
 class ConfirmationCheck(BaseModel):
@@ -91,7 +92,7 @@ class ConfirmationCheck(BaseModel):
     )
 
 
-def _is_confirmation_reply(message: str, proposed: ProposedSlot | None) -> bool:
+async def _is_confirmation_reply(message: str, proposed: ProposedSlot | None) -> bool:
     """True if `message` answers a pending booking confirmation (accept / decline / ask
     for another time), rather than an unrelated new request. Structured output, not keywords."""
     context = ''
@@ -108,10 +109,10 @@ def _is_confirmation_reply(message: str, proposed: ProposedSlot | None) -> bool:
         'request (a different question or a brand-new topic).\n\n'
         f'Message: "{message}"'
     )
-    return _CLASSIFIER_LLM.call(prompt, response_model=ConfirmationCheck).kind == 'reply'
+    return (await _CLASSIFIER_LLM.acall(prompt, response_model=ConfirmationCheck)).kind == 'reply'
 
 
-def _phrase(facts: str, user_message: str) -> str:
+async def _phrase(facts: str, user_message: str) -> str:
     """Let the LLM write a natural reply from a few facts (no hardcoded user strings).
 
     The reply is written in the same language the user used in ``user_message``.
@@ -122,7 +123,7 @@ def _phrase(facts: str, user_message: str) -> str:
         'anything beyond them. Reply in the SAME language the applicant used in their '
         f'message below.\n\nApplicant message: "{user_message}"\nFacts: {facts}'
     )
-    return _CLASSIFIER_LLM.call(prompt).strip()
+    return (await _CLASSIFIER_LLM.acall(prompt)).strip()
 
 
 def _resolve_slot(proposal: ProposedSlot | None, previous: ProposedSlot | None) -> ProposedSlot | None:
@@ -158,24 +159,27 @@ class AssistantState(BaseModel):
     # The slot currently proposed and awaiting the human's confirmation. Kept in state so
     # it survives the @human_feedback pause/resume (local variables do not).
     proposed: ProposedSlot | None = None
+    # Base64-encoded documents uploaded with this turn, if any (strings so they survive the
+    # JSON state persistence). Their presence routes to verification.
+    documents: list[str] = []
 
 
 @persist(persistence=FLOW_PERSISTENCE)  # in-memory store so a paused flow can be restored to resume
 class UniversityAssistantFlow(Flow[AssistantState]):
     @start()
-    def receive_question(self, crewai_trigger_payload: dict = None):
-        if crewai_trigger_payload:
-            self.state.question = crewai_trigger_payload.get('question', DEFAULT_QUESTION)
-            self.state.session_id = crewai_trigger_payload.get('session_id', self.state.session_id)
-            logger.info('Using trigger payload: %s', crewai_trigger_payload)
-        elif not self.state.question:
-            self.state.question = DEFAULT_QUESTION
-
+    def receive_question(self):
+        # question / session_id / documents arrive via kickoff(inputs=...) and are bound
+        # straight into state by CrewAI before this runs, so there is nothing to unpack here —
+        # this @start just anchors the flow entry that route_intent branches from.
         logger.info('Question: %s', self.state.question)
 
     @router(receive_question)
-    def route_intent(self) -> Literal['qa', 'booking', 'cancel', 'compare']:
-        intent = _classify_intent(self.state.question)
+    async def route_intent(self) -> Literal['qa', 'booking', 'cancel', 'compare', 'verify']:
+        if self.state.documents:
+            logger.info('Routed intent: verify (%d document(s) attached)', len(self.state.documents))
+            return 'verify'
+
+        intent = await _classify_intent(self.state.question)
         logger.info('Routed intent: %s', intent)
         return intent
 
@@ -186,6 +190,13 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         sub = CompareProgramsFlow()
         await sub.kickoff_async(inputs={'question': self.state.question})
         self.state.answer = sub.state.answer
+
+    @listen('verify')
+    async def verify_documents(self):
+        # Single vision call: the LLM judges all documents at once and returns the message.
+        logger.info('Verifying %d document(s)', len(self.state.documents))
+        verdict = await verify(self.state.documents)
+        self.state.answer = verdict.message
 
     @listen('qa')
     async def answer_question(self):
@@ -214,12 +225,12 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         proposal = _resolve_slot(result.pydantic, self.state.proposed)
 
         if proposal is None:
-            self.state.answer = _phrase('There are no open consultation slots at all right now.', request)
+            self.state.answer = await _phrase('There are no open consultation slots at all right now.', request)
             return self.state.answer
 
         self.state.proposed = proposal
         # The proposal text is written by the booking agent itself (its `message` field).
-        self.state.answer = proposal.message or _phrase(
+        self.state.answer = proposal.message or await _phrase(
             f'Propose an open consultation on {proposal.date} at {proposal.start_time} about '
             f'{proposal.topic}; ask them to confirm or suggest another time.',
             request,
@@ -244,7 +255,7 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         return request
 
     @listen('approve')
-    def do_book(self):
+    async def do_book(self):
         # The human approved -> the write is done here, deterministically, by code.
         feedback = self.last_human_feedback
         user_message = feedback.feedback if feedback else self.state.question
@@ -253,13 +264,13 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         booked = book_slot(proposed.slot_id, who, proposed.topic)
         if booked:
             SESSION_BOOKINGS.setdefault(self.state.session_id, []).append(proposed.slot_id)
-            self.state.answer = _phrase(
+            self.state.answer = await _phrase(
                 f'The consultation is now booked for {proposed.date} at '
                 f'{proposed.start_time} about {proposed.topic}. Confirm it warmly.',
                 user_message,
             )
         else:
-            self.state.answer = _phrase(
+            self.state.answer = await _phrase(
                 f'The slot on {proposed.date} at {proposed.start_time} is no longer available; '
                 f'suggest asking for another time.',
                 user_message,
@@ -267,34 +278,34 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         logger.info('Booked slot %s: %s', proposed.slot_id, booked)
 
     @listen('reject')
-    def do_reject(self):
+    async def do_reject(self):
         feedback = self.last_human_feedback
         user_message = feedback.feedback if feedback else self.state.question
-        self.state.answer = _phrase(
+        self.state.answer = await _phrase(
             'The applicant declined; nothing was booked and the request is cancelled.',
             user_message,
         )
         logger.info('Booking rejected for slot %s', self.state.proposed.slot_id if self.state.proposed else None)
 
     @listen('cancel')
-    def cancel_booking(self):
+    async def cancel_booking(self):
         # Cancel the slots this session booked. The write is plain code, like booking.
         slot_ids = SESSION_BOOKINGS.get(self.state.session_id, [])
         cancelled = [sid for sid in slot_ids if cancel_slot(sid)]
         SESSION_BOOKINGS[self.state.session_id] = [sid for sid in slot_ids if sid not in cancelled]
         if cancelled:
-            self.state.answer = _phrase(
+            self.state.answer = await _phrase(
                 f"Cancelled the applicant's consultation (slot id {cancelled[0]}); the time is free again.",
                 self.state.question,
             )
         else:
-            self.state.answer = _phrase(
+            self.state.answer = await _phrase(
                 'The applicant has no active consultation booking to cancel.',
                 self.state.question,
             )
         logger.info('Cancelled slots %s for session %s', cancelled, self.state.session_id)
 
-    @listen(or_(answer_question, do_book, do_reject, cancel_booking, compare_programs))
+    @listen(or_(answer_question, do_book, do_reject, cancel_booking, compare_programs, verify_documents))
     def show_answer(self):
         logger.info('Answer: %s', self.state.answer)
 
@@ -305,13 +316,13 @@ def _abandon_pending(session_id: str, flow_id: str) -> None:
     SESSION_FLOWS.pop(session_id, None)
 
 
-async def _resume_or_start(question: str, history: list[dict], session_id: str):
+async def _resume_or_start(question: str, history: list[dict], session_id: str, documents: list[str]):
     """Resume the session's paused booking if this message answers the confirmation;
     otherwise start a fresh flow (abandoning any stale pause)."""
     paused_flow_id = SESSION_FLOWS.get(session_id)
     if paused_flow_id:
         flow = UniversityAssistantFlow.from_pending(paused_flow_id, persistence=FLOW_PERSISTENCE)
-        if _is_confirmation_reply(question, flow.state.proposed):
+        if await _is_confirmation_reply(question, flow.state.proposed):
             # Refresh history so a re-proposal ('change') keeps the full context
             # (original topic, the slot already proposed), not the stale kickoff snapshot.
             flow.state.history = _format_history(history)
@@ -321,13 +332,22 @@ async def _resume_or_start(question: str, history: list[dict], session_id: str):
 
     flow = UniversityAssistantFlow()
     result = await flow.kickoff_async(
-        inputs={'question': question, 'history': _format_history(history), 'session_id': session_id}
+        inputs={
+            'question': question,
+            'history': _format_history(history),
+            'session_id': session_id,
+            'documents': documents,
+        }
     )
     return flow, result
 
 
-async def answer_question(question: str, session_id: str = DEFAULT_SESSION) -> str:
-    """Answer a university question, remembering the session's prior messages.
+async def answer_question(
+    question: str, session_id: str = DEFAULT_SESSION, documents: list[bytes] | None = None
+) -> str:
+    """Answer a university question, remembering the session's prior messages. ``documents``
+    are raw uploaded image bytes; if any are attached, the turn is routed to document
+    verification.
 
     If the session's flow is paused awaiting a booking confirmation and the new message
     answers that confirmation, this resumes it with the message as the human's feedback;
@@ -335,7 +355,9 @@ async def answer_question(question: str, session_id: str = DEFAULT_SESSION) -> s
     """
     history = CONVERSATION_STORE.history(session_id)
 
-    flow, result = await _resume_or_start(question, history, session_id)
+    # Encode to base64 so the images are JSON-serializable in the persisted flow state.
+    documents_b64 = [base64.b64encode(doc).decode() for doc in documents or []]
+    flow, result = await _resume_or_start(question, history, session_id, documents_b64)
 
     answer = flow.state.answer
     if isinstance(result, HumanFeedbackPending):

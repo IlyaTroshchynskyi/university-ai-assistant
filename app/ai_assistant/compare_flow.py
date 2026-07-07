@@ -58,14 +58,14 @@ async def _research(program: str, question: str) -> str:
 
 class CompareProgramsFlow(Flow[CompareState]):
     @start()
-    def extract_programs(self):
+    async def extract_programs(self):
         prompt = (
             'The user wants to compare two university programs. Extract the two program '
             'names they are comparing from the message below. If only one program is named, '
             'leave the second empty.\n\n'
             f'Message: "{self.state.question}"'
         )
-        pair = _LLM.call(prompt, response_model=ProgramPair)
+        pair = await _LLM.acall(prompt, response_model=ProgramPair)
         self.state.program_a = pair.program_a.strip()
         self.state.program_b = pair.program_b.strip()
         logger.info('Comparing %r vs %r', self.state.program_a, self.state.program_b)
@@ -81,7 +81,7 @@ class CompareProgramsFlow(Flow[CompareState]):
         logger.info('Research done for program B: %r', self.state.program_b)
 
     @listen(and_(research_a, research_b))
-    def merge(self):
+    async def merge(self):
         # Fan-in: a plain LLM call (no tools) turns the two summaries into one side-by-side
         # answer. It must not invent facts beyond info_a / info_b — that is why it has no
         # retriever tool, unlike the research agent.
@@ -99,5 +99,5 @@ class CompareProgramsFlow(Flow[CompareState]):
             'instead of listing every dimension as "Unknown". Finish with a short, balanced '
             'takeaway. Write the whole answer in the SAME language the applicant used.'
         )
-        self.state.answer = _LLM.call(prompt).strip()
+        self.state.answer = (await _LLM.acall(prompt)).strip()
         logger.info('Comparison merged for %r vs %r', self.state.program_a, self.state.program_b)
