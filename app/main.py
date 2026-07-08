@@ -58,7 +58,7 @@ async def health() -> dict[str, str]:
 async def ask(
     service: Annotated[MainFlowService, Depends(get_main_flow_service)],
     question: str = Form(''),
-    session_id: str = Form('default'),
+    session_id: str = Form(),
     files: Annotated[list[UploadFile] | None, File()] = None,
 ) -> AskResponse:
     """Ask a question and/or upload documents (multipart/form-data). If any files are
@@ -72,14 +72,16 @@ async def ask(
 async def ingest_document(
     file: Annotated[UploadFile, File()],
     knowledge: Annotated[KnowledgeService, Depends(get_knowledge_service)],
+    doc_type: str | None = Form('general'),
 ) -> IngestResponse:
     """Ingest a PDF into the knowledge base: extract text, split into chunks, embed and store
-    them in Qdrant so the retriever can find them."""
+    them in Qdrant so the retriever can find them. ``doc_type`` (e.g. ``program`` / ``policy`` /
+    ``admissions``) is an optional facet a search can later filter on."""
     if file.content_type != 'application/pdf' and not (file.filename or '').lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail='Only PDF files are supported.')
 
     source = file.filename or 'upload.pdf'
-    chunks = await knowledge.ingest_pdf(await file.read(), source)
+    chunks = await knowledge.ingest_pdf(await file.read(), source, doc_type=doc_type)
     return IngestResponse(source=source, chunks=chunks)
 
 

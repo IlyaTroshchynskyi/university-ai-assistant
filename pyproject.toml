@@ -13,6 +13,7 @@ dependencies = [
     "qdrant-client>=1.18.0",
     "pdfplumber>=0.11.10",
     "langchain-text-splitters>=1.1.2",
+    "fastembed>=0.8.0",
 ]
 
 [project.scripts]

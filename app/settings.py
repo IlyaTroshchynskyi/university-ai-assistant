@@ -1,8 +1,3 @@
-"""Central application settings, loaded and validated from the environment / .env via
-pydantic-settings. This is the single source of truth for the OpenAI credentials and model
-name — nothing else calls load_dotenv or reads os.environ for these. Build every LLM (and
-crew agent) through ``build_llm`` so they all share the same key and model."""
-
 from functools import lru_cache
 
 from crewai import LLM
@@ -14,9 +9,13 @@ class Settings(BaseSettings):
 
     OPENAI_API_KEY: str  # required — read from OPENAI_API_KEY
     MODEL_NAME: str = 'gpt-4o-mini'  # read from MODEL; used everywhere unless overridden
-    EMBEDDING_MODEL: str = 'text-embedding-3-small'  # OpenAI embedding model for the vector store
+    EMBEDDING_MODEL: str = 'text-embedding-3-small'  # OpenAI (dense) embedding model for the vector store
+    SPARSE_MODEL: str = 'Qdrant/bm25'  # FastEmbed model for sparse (BM25 keyword) vectors
     QDRANT_URL: str = 'http://localhost:6333'  # the Qdrant service (see docker-compose.yml)
     QDRANT_COLLECTION: str = 'university_kb'  # default collection the vector service reads/writes
+    # Minimum cosine similarity for a dense hit to count as relevant. Applied server-side (on the
+    # dense query / dense prefetch) so weak matches never come back. See QdrantService.
+    SEARCH_MIN_SCORE: float = 0.3
 
 
 @lru_cache

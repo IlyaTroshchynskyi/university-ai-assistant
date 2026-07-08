@@ -26,10 +26,6 @@ from app.settings import build_llm
 
 logger = logging.getLogger(__name__)
 
-# Small, cheap LLM used for the two plain (non-agentic) steps: extracting the program
-# names and writing the final side-by-side comparison. Research is the only agentic part.
-_LLM = build_llm()
-
 
 class ProgramPair(BaseModel):
     """Structured output for the extractor: the two programs the user wants to compare."""
@@ -48,14 +44,6 @@ class CompareState(BaseModel):
     answer: str = ''
 
 
-async def _research(program: str, question: str) -> str:
-    """Run the single-program research crew for one program. Empty program -> empty info."""
-    if not program:
-        return ''
-    result = await ProgramResearchCrew().crew().kickoff_async(inputs={'program': program, 'question': question})
-    return result.raw
-
-
 class CompareProgramsFlow(Flow[CompareState]):
     @start()
     async def extract_programs(self):
@@ -65,19 +53,19 @@ class CompareProgramsFlow(Flow[CompareState]):
             'leave the second empty.\n\n'
             f'Message: "{self.state.question}"'
         )
-        pair = await _LLM.acall(prompt, response_model=ProgramPair)
+        pair = await build_llm().acall(prompt, response_model=ProgramPair)
         self.state.program_a = pair.program_a.strip()
         self.state.program_b = pair.program_b.strip()
         logger.info('Comparing %r vs %r', self.state.program_a, self.state.program_b)
 
     @listen(extract_programs)
     async def research_a(self):
-        self.state.info_a = await _research(self.state.program_a, self.state.question)
+        self.state.info_a = await self._research(self.state.program_a, self.state.question)
         logger.info('Research done for program A: %r', self.state.program_a)
 
     @listen(extract_programs)
     async def research_b(self):
-        self.state.info_b = await _research(self.state.program_b, self.state.question)
+        self.state.info_b = await self._research(self.state.program_b, self.state.question)
         logger.info('Research done for program B: %r', self.state.program_b)
 
     @listen(and_(research_a, research_b))
@@ -99,5 +87,13 @@ class CompareProgramsFlow(Flow[CompareState]):
             'instead of listing every dimension as "Unknown". Finish with a short, balanced '
             'takeaway. Write the whole answer in the SAME language the applicant used.'
         )
-        self.state.answer = (await _LLM.acall(prompt)).strip()
+        self.state.answer = (await build_llm().acall(prompt)).strip()
         logger.info('Comparison merged for %r vs %r', self.state.program_a, self.state.program_b)
+
+    @staticmethod
+    async def _research(program: str, question: str) -> str:
+        """Run the single-program research crew for one program. Empty program -> empty info."""
+        if not program:
+            return ''
+        result = await ProgramResearchCrew().crew().kickoff_async(inputs={'program': program, 'question': question})
+        return result.raw

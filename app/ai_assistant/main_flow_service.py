@@ -9,7 +9,6 @@ from app.ai_assistant.schemas import ConfirmationCheck, IntentDecision, IntentTy
 from app.ai_assistant.tools.booking_tools import list_open_slots, ProposedSlot
 from app.settings import build_llm
 
-DEFAULT_SESSION = 'default'
 MAX_HISTORY_MESSAGES = 10  # how many recent messages to feed back into the prompt
 
 # Sessions whose flow is paused waiting for a human's booking confirmation, mapped to the
@@ -22,9 +21,7 @@ class MainFlowService:
     def __init__(self, llm: LLM):
         self._llm = llm
 
-    async def answer_question(
-        self, question: str, session_id: str = DEFAULT_SESSION, documents: list[bytes] | None = None
-    ) -> str:
+    async def answer_question(self, question: str, session_id: str, documents: list[bytes] | None = None) -> str:
         """Answer a university question, remembering the session's prior messages. ``documents``
         are raw uploaded image bytes; if any are attached, the turn is routed to document
         verification.
