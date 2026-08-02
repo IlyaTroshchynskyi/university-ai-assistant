@@ -5,17 +5,33 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
+    OPENAI_API_KEY: str
+    MODEL_NAME: str = 'gpt-4o-mini'
+    EMBEDDING_MODEL: str = 'text-embedding-3-small'
+    SPARSE_MODEL: str = 'Qdrant/bm25'
+    QDRANT_URL: str = 'http://localhost:6333'
+    QDRANT_COLLECTION: str = 'university_kb'
 
-    OPENAI_API_KEY: str  # required — read from OPENAI_API_KEY
-    MODEL_NAME: str = 'gpt-4o-mini'  # read from MODEL; used everywhere unless overridden
-    EMBEDDING_MODEL: str = 'text-embedding-3-small'  # OpenAI (dense) embedding model for the vector store
-    SPARSE_MODEL: str = 'Qdrant/bm25'  # FastEmbed model for sparse (BM25 keyword) vectors
-    QDRANT_URL: str = 'http://localhost:6333'  # the Qdrant service (see docker-compose.yml)
-    QDRANT_COLLECTION: str = 'university_kb'  # default collection the vector service reads/writes
-    # Minimum cosine similarity for a dense hit to count as relevant. Applied server-side (on the
-    # dense query / dense prefetch) so weak matches never come back. See QdrantService.
     SEARCH_MIN_SCORE: float = 0.3
+
+    SEARCH_MMR_LAMBDA: float = 0.5
+    SEARCH_MMR_FETCH_MULT: int = 4
+
+    VISION_MODEL: str = 'gpt-4o-mini'
+    TABLE_SUMMARY_MODEL: str = 'gpt-4o-mini'
+    STRUCTURED_CHUNK_SIZE: int = 1000
+    STRUCTURED_CHUNK_OVERLAP: int = 200
+    ENRICHMENT_ENABLED: bool = True
+
+    DYNAMODB_ENDPOINT_URL: str | None = 'http://localhost:8001'
+    DYNAMODB_UNIVERSITY_TABLE: str = 'university'
+    DYNAMODB_SLOTS_TABLE: str = 'appointment_slots'
+
+    AWS_REGION: str = 'us-east-1'
+    AWS_ACCESS_KEY_ID: str = 'dummy'
+    AWS_SECRET_ACCESS_KEY: str = 'dummy'
+
+    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
 
 @lru_cache
@@ -24,6 +40,7 @@ def get_settings() -> Settings:
     return Settings()
 
 
+# Todo delete from here
 @lru_cache
 def build_llm() -> LLM:
     """A crewai LLM wired to the configured model and API key. Pass the key explicitly so no

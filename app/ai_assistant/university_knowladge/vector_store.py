@@ -95,12 +95,15 @@ class QdrantService:
         limit: int = 5,
         query_filter: models.Filter | None = None,
         score_threshold: float | None = None,
+        with_vectors: bool = False,
     ) -> list[ScoredPoint]:
         """Fuse a dense and a sparse query with RRF and return the top ``limit`` points.
 
         Each branch is prefetched independently (``limit * 5`` candidates) and Qdrant fuses their
         ranks. ``score_threshold`` is a **cosine** floor, so it goes on the dense prefetch only —
         the fused RRF score (~``1/(60+rank)``) is not comparable to cosine and is left unfiltered.
+        Set ``with_vectors`` to attach the stored dense vector to each point (needed for MMR
+        reranking, which measures chunk-to-chunk similarity client-side).
         Docs: https://qdrant.tech/documentation/concepts/hybrid-queries/
         """
         response = await self._client.query_points(
@@ -118,5 +121,6 @@ class QdrantService:
             query_filter=query_filter,
             limit=limit,
             with_payload=True,
+            with_vectors=[DENSE_VECTOR] if with_vectors else False,
         )
         return response.points

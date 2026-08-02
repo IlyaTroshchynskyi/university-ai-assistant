@@ -6,7 +6,9 @@ from crewai.flow.async_feedback import HumanFeedbackPending
 from app.ai_assistant.conversation_store import CONVERSATION_STORE
 from app.ai_assistant.persistence import FLOW_PERSISTENCE
 from app.ai_assistant.schemas import ConfirmationCheck, IntentDecision, IntentType
-from app.ai_assistant.tools.booking_tools import list_open_slots, ProposedSlot
+from app.ai_assistant.tools.booking_tools import ProposedSlot
+from app.core.dynamodb.schemas import SlotStatus
+from app.core.dynamodb.slots_repository import open_slots_repository
 from app.settings import build_llm
 
 MAX_HISTORY_MESSAGES = 10  # how many recent messages to feed back into the prompt
@@ -111,25 +113,28 @@ class MainFlowService:
         return (await self._llm.acall(prompt, response_model=IntentDecision)).intent
 
     @staticmethod
-    def resolve_slot(proposal: ProposedSlot | None, previous: ProposedSlot | None) -> ProposedSlot | None:
+    async def resolve_slot(proposal: ProposedSlot | None, previous: ProposedSlot | None) -> ProposedSlot | None:
         """Return a valid, genuinely-open slot to propose: the agent's choice if it is open,
         otherwise the first open slot that isn't the one just proposed. None if none are open.
 
-        This keeps the guard that the agent can never invent a slot.
+        The open slots come from DynamoDB (``appointment_slots``), so this reflects real bookings —
+        keeping the guard that the agent can never invent (or re-propose a just-taken) slot.
         """
-        open_slots = list_open_slots()
-        if proposal is not None and proposal.slot_id in {s['id'] for s in open_slots}:
+        async with open_slots_repository() as repo:
+            open_slots = await repo.list_slots_by_status(SlotStatus.OPEN)
+        open_ids = {s.id for s in open_slots}
+        if proposal is not None and proposal.slot_id in open_ids:
             return proposal
 
         prev_id = previous.slot_id if previous else None
-        candidates = [s for s in open_slots if s['id'] != prev_id]
+        candidates = [s for s in open_slots if s.id != prev_id]
         if not candidates:
             return None
         s = candidates[0]
         return ProposedSlot(
-            slot_id=s['id'],
-            date=s['date'],
-            start_time=s['start_time'],
+            slot_id=s.id,
+            date=s.date,
+            start_time=s.start_time,
             topic='',
             applicant_name='',
             message='',
