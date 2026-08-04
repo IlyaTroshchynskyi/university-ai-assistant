@@ -9,5 +9,18 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
 
+  dynamodb:
+    image: amazon/dynamodb-local:latest  # pin to a specific tag for reproducible builds
+    container_name: dynamodb
+    restart: unless-stopped
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "./data"]
+    working_dir: /home/dynamodblocal
+    user: root  # needed so the process can write to the mounted ./data volume
+    ports:
+      - "8001:8000"
+    volumes:
+      - dynamodb_storage:/home/dynamodblocal/data
+
 volumes:
   qdrant_storage:
+  dynamodb_storage:

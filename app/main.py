@@ -6,10 +6,22 @@ from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel
 
 from app.ai_assistant.main_flow_service import get_main_flow_service, MainFlowService
-from app.ai_assistant.tools.booking_tools import SLOTS
 from app.ai_assistant.university_knowladge.knowledge_service import get_knowledge_service, KnowledgeService
+from app.api.v1.rooms.router import router as rooms_router
+from app.core.dynamodb.schemas import Slot, SlotStatus
+from app.core.dynamodb.slots_repository import open_slots_repository
+from app.core.execption_handler import include_exception_handlers
 
-app = FastAPI(title='University Assistant')
+
+def create_app() -> FastAPI:
+    app = FastAPI(title='University Assistant')
+    include_exception_handlers(app)
+    app.include_router(rooms_router)
+
+    return app
+
+
+app = create_app()
 
 
 def _walk(node: object):
@@ -87,7 +99,15 @@ async def ingest_document(
 
 @app.get('/slots')
 async def slots(status: str | None = None) -> list[dict]:
-    """Inspect consultation slots (in-memory). Optionally filter by status, e.g. ?status=booked."""
-    if status:
-        return [s for s in SLOTS if s['status'] == status]
-    return SLOTS
+    """Inspect consultation slots from DynamoDB. Optionally filter by status, e.g. ?status=booked."""
+    # Todo refactor to avoid repo here
+    async with open_slots_repository() as repo:
+        if status:
+            try:
+                wanted = SlotStatus(status)
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f'Unknown status {status!r}.')
+            found = await repo.list_slots_by_status(wanted)
+        else:
+            found = [Slot.model_validate(item) for item in await repo.scan()]
+    return [slot.model_dump() for slot in found]

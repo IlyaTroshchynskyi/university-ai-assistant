@@ -2,7 +2,7 @@
 name = "crewai-university-assistant"
 version = "0.1.0"
 description = "University assistant using crewAI"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 dependencies = [
     "crewai[tools]>=1.15.1,<2.0.0",
     "python-dotenv>=1.0.0",
@@ -14,6 +14,14 @@ dependencies = [
     "pdfplumber>=0.11.10",
     "langchain-text-splitters>=1.1.2",
     "fastembed>=0.8.0",
+    "aiobotocore>=3.8.0",
+    "boto3>=1.43.46",
+    "numpy>=2.0.0",
+    "pymupdf4llm>=0.2.9",
+    "pydantic[email]>=2.12.5",
+    # Runtime, not just typing: base_service.py and api/v1/rooms/repository.py import DynamoDBClient
+    # unguarded, and FastAPI resolves `Annotated[DynamoDBClient, Depends(...)]` at request time.
+    "types-aiobotocore[dynamodb]>=3.7.0",
 ]
 
 [project.scripts]
@@ -35,6 +43,7 @@ type = "flow"
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 
 
 [tool.ruff]
@@ -67,4 +76,6 @@ force-sort-within-sections = true  # Don't sort straight-style imports before fr
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "polyfactory>=3.3.0",  # tests/factories only — never imported by app/
 ]

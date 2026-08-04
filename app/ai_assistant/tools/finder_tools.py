@@ -1,5 +1,11 @@
+import logging
+
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
+
+from app.core.dynamodb.university_repository import open_university_repository
+
+logger = logging.getLogger(__name__)
 
 
 class FindPersonToolInput(BaseModel):
@@ -7,7 +13,7 @@ class FindPersonToolInput(BaseModel):
 
     name: str = Field(
         ...,
-        description='The exact full name (or first name) of the professor or staff member to look up.',
+        description='The full name or first name of the professor or staff member to look up.',
     )
 
 
@@ -20,39 +26,21 @@ class FindPersonTool(BaseTool):
     )
     args_schema: type[BaseModel] = FindPersonToolInput
 
-    async def _run(self, name: str) -> dict | str:
-        """Look up a professor's faculty, office, email and office hours by name."""
-        # TODO: replace this in-memory stub with a real lookup (DB / API).
-        people = {
-            'Ivan': {
-                'id': 1,
-                'full_name': 'Ivan Ivanov',
-                'title': 'Professor',
-                'faculty_id': 1,
-                'faculties': [],
-                'email': 'ivan@university.edu',
-                'room_id': 'A-201',
-                'office_hour': '10:00-15:00',
-            },
-            'Peter': {
-                'id': 2,
-                'full_name': 'Peter Petrov',
-                'title': 'Associate Professor',
-                'faculty_id': 1,
-                'faculties': [],
-                'email': 'peter@university.edu',
-                'room_id': 'B-105',
-                'office_hour': '10:00-15:00',
-            },
-        }
-        return people.get(name, f'No professor found with the name {name!r}.')
+    async def _run(self, name: str) -> list[dict] | str:
+        """Look up professors by name."""
+        async with open_university_repository() as repo:
+            professors = await repo.find_professors_by_name(name)
+
+        logger.info('FindPerson %r -> %s', name, f'{len(professors)} match(es)' if professors else 'none')
+        if professors is None:
+            return f'No professor found with the name {name!r}.'
+        return [professor.model_dump() for professor in professors]
 
 
 class FindPlaceToolInput(BaseModel):
     """Input schema for FindPlaceTool."""
 
     name: str = Field(
-        ...,
         description="The name of the campus place to look up, e.g. 'Main Library', 'Cafeteria', 'Gym'.",
     )
 
@@ -68,45 +56,10 @@ class FindPlaceTool(BaseTool):
 
     async def _run(self, name: str) -> dict | str:
         """Look up a campus place (building, floor, opening hours) by name."""
-        # TODO: replace this in-memory stub with a real lookup (DB / API).
-        places = [
-            {
-                'id': 1,
-                'name': 'Cafeteria',
-                'building': 'Student Center',
-                'floor': '1',
-                'opening_hours': 'Mon-Fri 07:30-20:00; Sat 09:00-16:00; Sun closed',
-            },
-            {
-                'id': 2,
-                'name': 'Main Library',
-                'building': 'Main Library',
-                'floor': '1-3',
-                'opening_hours': 'Mon-Fri 08:00-22:00; Sat-Sun 10:00-18:00',
-            },
-            {
-                'id': 3,
-                'name': 'Gym (Fitness Center)',
-                'building': 'Student Center',
-                'floor': '2',
-                'opening_hours': 'Daily 06:00-23:00',
-            },
-            {
-                'id': 4,
-                'name': 'Admissions Office',
-                'building': 'Keynes Hall',
-                'floor': '1',
-                'opening_hours': 'Mon-Fri 09:00-17:00',
-            },
-            {
-                'id': 5,
-                'name': 'Dormitory (Riverside Residence)',
-                'building': 'Riverside Residence',
-                'floor': 'lobby',
-                'opening_hours': 'Front desk 24/7',
-            },
-        ]
-        for item in places:
-            if item['name'].lower() == name.lower():
-                return item
-        return f'No campus place found with the name {name!r}.'
+        async with open_university_repository() as repo:
+            place = await repo.find_place_by_name(name)
+
+        logger.info('FindPlace %r -> %s', name, place.name if place else 'none')
+        if place is None:
+            return f'No campus place found with the name {name!r}.'
+        return place.model_dump()

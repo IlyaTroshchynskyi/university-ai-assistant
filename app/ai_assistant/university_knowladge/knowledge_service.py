@@ -4,14 +4,17 @@ embedders, the text splitter and the PDF loader — is injected, so each can be 
 independently.
 
 Search is hybrid: the query is embedded both densely (semantic) and sparsely (BM25 keyword) and
-Qdrant fuses the two with RRF (see ``QdrantService.hybrid_search``)."""
+Qdrant fuses the two with RRF (see ``QdrantService.hybrid_search``). The fused candidate pool is
+then reranked with MMR (Maximal Marginal Relevance) so near-duplicate chunks don't crowd out the
+result set (see ``_mmr``)."""
 
 import asyncio
 import logging
 import uuid
 
+import numpy as np
 from qdrant_client import models
-from qdrant_client.models import PointStruct
+from qdrant_client.models import PointStruct, ScoredPoint
 
 from app.ai_assistant.university_knowladge.embedder import get_embedder, OpenAIEmbedder
 from app.ai_assistant.university_knowladge.pdf_loader import PdfLoader
@@ -51,6 +54,8 @@ class KnowledgeService:
         self._splitter = splitter
         self._pdf_loader = pdf_loader
         self._min_score = settings.SEARCH_MIN_SCORE
+        self._mmr_lambda = settings.SEARCH_MMR_LAMBDA
+        self._mmr_fetch_mult = settings.SEARCH_MMR_FETCH_MULT
 
     async def ingest_pdf(self, data: bytes, source: str, doc_type: str) -> int:
         """Extract, chunk, embed and store a PDF. Returns the number of chunks written.
@@ -112,6 +117,42 @@ class KnowledgeService:
         )
         return '\n\n'.join(h.payload['text'] for h in hits if h.payload)
 
+    async def search_mmr(
+        self,
+        query: str,
+        limit: int = 4,
+        source: str | None = None,
+        doc_type: str | None = 'general',
+    ) -> str:
+        """Like :meth:`search`, but MMR-reranked. Hybrid search first fetches a larger candidate
+        pool (``limit * SEARCH_MMR_FETCH_MULT``); MMR then reranks it down to ``limit`` so the
+        results stay relevant *and* diverse instead of returning several paraphrases of the same
+        passage."""
+        dense_vector = (await self._embedder.embed([query]))[0]
+        sparse_vector = await self._sparse_embedder.embed_query(query)
+
+        candidates = await self._qdrant.hybrid_search(
+            dense=dense_vector,
+            sparse=sparse_vector,
+            limit=limit * self._mmr_fetch_mult,
+            query_filter=self._build_filter(source, doc_type),
+            score_threshold=self._min_score,
+            with_vectors=True,
+        )
+        hits = self._rerank_mmr(dense_vector, candidates, limit)
+        return '\n\n'.join(h.payload['text'] for h in hits if h.payload)
+
+    def _rerank_mmr(self, query_vector: list[float], candidates: list[ScoredPoint], limit: int) -> list[ScoredPoint]:
+        """Reorder ``candidates`` by MMR and keep the top ``limit``. Candidates missing their dense
+        vector (e.g. an older point stored without one) are dropped from the diversity step."""
+        embedded = [c for c in candidates if c.vector is not None]
+        if len(embedded) <= 1:
+            return embedded[:limit]
+
+        cand_vectors = [c.vector[DENSE_VECTOR] for c in embedded]
+        order = self._mmr(query_vector, cand_vectors, k=limit, lambda_mult=self._mmr_lambda)
+        return [embedded[i] for i in order]
+
     @staticmethod
     def _build_filter(source: str | None, doc_type: str | None) -> models.Filter | None:
         """Build a Qdrant ``must`` filter from the optional scoping facets, or ``None`` if unscoped.
@@ -122,6 +163,43 @@ class KnowledgeService:
         if doc_type:
             conditions.append(models.FieldCondition(key='doc_type', match=models.MatchValue(value=doc_type)))
         return models.Filter(must=conditions) if conditions else None
+
+    def _mmr(
+        self,
+        query_vector: list[float],
+        candidate_vectors: list[list[float]],
+        k: int,
+        lambda_mult: float,
+    ) -> list[int]:
+        """Maximal Marginal Relevance: greedily pick indices into ``candidate_vectors`` that balance
+        relevance to the query against novelty versus the already-picked chunks. Returns up to ``k``
+        indices in selection order.
+
+        Each step maximises ``lambda * sim(query, c) - (1 - lambda) * max sim(c, already_selected)``,
+        where ``sim`` is cosine similarity. ``lambda_mult`` in ``[0, 1]`` slides from pure diversity
+        (0) to pure relevance (1). Docs: Carbonell & Goldstein, 1998.
+        """
+        candidates = self._normalize(np.asarray(candidate_vectors, dtype=np.float64))
+        query = self._normalize(np.asarray([query_vector], dtype=np.float64))[0]
+
+        relevance = candidates @ query  # cosine sim of each candidate to the query
+        # Pairwise cosine sim between candidates; column j reused as "sim to selected j" below.
+        pairwise = candidates @ candidates.T
+
+        k = min(k, len(candidate_vectors))
+        selected: list[int] = [int(np.argmax(relevance))]
+        while len(selected) < k:
+            redundancy = pairwise[:, selected].max(axis=1)  # closeness to the nearest selected chunk
+            scores = lambda_mult * relevance - (1.0 - lambda_mult) * redundancy
+            scores[selected] = -np.inf  # never re-pick
+            selected.append(int(np.argmax(scores)))
+        return selected
+
+    @staticmethod
+    def _normalize(matrix: np.ndarray) -> np.ndarray:
+        """Row-normalize so dot products read as cosine similarity; zero rows are left untouched."""
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        return matrix / np.where(norms == 0.0, 1.0, norms)
 
 
 def get_knowledge_service() -> KnowledgeService:

@@ -12,13 +12,15 @@ from app.ai_assistant.doc_verification.pipeline import verify
 from app.ai_assistant.main_flow_service import MainFlowService
 from app.ai_assistant.persistence import FLOW_PERSISTENCE
 from app.ai_assistant.schemas import AssistantState
-from app.ai_assistant.tools.booking_tools import book_slot, cancel_slot
+from app.ai_assistant.tools.booking_tools import ProposedSlot
+from app.core.dynamodb.slots_repository import open_slots_repository
 from app.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-# Slot ids booked by each session, so a later "cancel" request knows what to free.
-SESSION_BOOKINGS: dict[str, list[int]] = {}
+# Slots booked by each session, so a later "cancel" request knows what to free. We keep the whole
+# ProposedSlot (not just the id) because cancelling needs the slot's DynamoDB key (date + start).
+SESSION_BOOKINGS: dict[str, list[ProposedSlot]] = {}  # Todo move to DynamoDb
 
 
 class DeferProvider:
@@ -95,7 +97,7 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         logger.info('Proposing a consultation slot for: %s', request)
 
         result = await BookingCrew().crew().kickoff_async(inputs={'question': request, 'history': self.state.history})
-        proposal = self._service.resolve_slot(result.pydantic, self.state.proposed)
+        proposal = await self._service.resolve_slot(result.pydantic, self.state.proposed)
 
         if proposal is None:
             self.state.answer = await self._service.phrase(
@@ -136,9 +138,10 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         user_message = feedback.feedback if feedback else self.state.question
         proposed = self.state.proposed
         who = proposed.applicant_name or self.state.session_id
-        booked = book_slot(proposed.slot_id, who, proposed.topic)
+        async with open_slots_repository() as repo:
+            booked = await repo.book_slot(proposed.date, proposed.start_time, proposed.slot_id, who, proposed.topic)
         if booked:
-            SESSION_BOOKINGS.setdefault(self.state.session_id, []).append(proposed.slot_id)
+            SESSION_BOOKINGS.setdefault(self.state.session_id, []).append(proposed)
             self.state.answer = await self._service.phrase(
                 f'The consultation is now booked for {proposed.date} at '
                 f'{proposed.start_time} about {proposed.topic}. Confirm it warmly.',
@@ -165,12 +168,19 @@ class UniversityAssistantFlow(Flow[AssistantState]):
     @listen('cancel')
     async def cancel_booking(self):
         # Cancel the slots this session booked. The write is plain code, like booking.
-        slot_ids = SESSION_BOOKINGS.get(self.state.session_id, [])
-        cancelled = [sid for sid in slot_ids if cancel_slot(sid)]
-        SESSION_BOOKINGS[self.state.session_id] = [sid for sid in slot_ids if sid not in cancelled]
+        bookings = SESSION_BOOKINGS.get(self.state.session_id, [])
+        cancelled: list[ProposedSlot] = []
+        remaining: list[ProposedSlot] = []
+        async with open_slots_repository() as repo:
+            for slot in bookings:
+                if await repo.cancel_slot(slot.date, slot.start_time, slot.slot_id):
+                    cancelled.append(slot)
+                else:
+                    remaining.append(slot)
+        SESSION_BOOKINGS[self.state.session_id] = remaining
         if cancelled:
             self.state.answer = await self._service.phrase(
-                f"Cancelled the applicant's consultation (slot id {cancelled[0]}); the time is free again.",
+                f"Cancelled the applicant's consultation (slot id {cancelled[0].slot_id}); the time is free again.",
                 self.state.question,
             )
         else:
@@ -178,7 +188,7 @@ class UniversityAssistantFlow(Flow[AssistantState]):
                 'The applicant has no active consultation booking to cancel.',
                 self.state.question,
             )
-        logger.info('Cancelled slots %s for session %s', cancelled, self.state.session_id)
+        logger.info('Cancelled slots %s for session %s', [s.slot_id for s in cancelled], self.state.session_id)
 
     @listen(or_(answer_question, do_book, do_reject, cancel_booking, compare_programs, verify_documents))
     def show_answer(self):

@@ -1,146 +1,8 @@
-from typing import Any
-
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
-# TODO: replace this in-memory list with a real store (DB / calendar API).
-SLOTS = [
-    {
-        'id': 1,
-        'date': '2026-10-06',
-        'start_time': '09:00',
-        'end_time': '09:30',
-        'topic': None,
-        'booked_by': None,
-        'status': 'open',
-    },
-    {
-        'id': 2,
-        'date': '2026-10-06',
-        'start_time': '10:00',
-        'end_time': '10:30',
-        'topic': None,
-        'booked_by': None,
-        'status': 'open',
-    },
-    {
-        'id': 3,
-        'date': '2026-10-06',
-        'start_time': '11:00',
-        'end_time': '11:30',
-        'topic': None,
-        'booked_by': None,
-        'status': 'open',
-    },
-    {
-        'id': 4,
-        'date': '2026-10-06',
-        'start_time': '13:00',
-        'end_time': '13:30',
-        'topic': None,
-        'booked_by': None,
-        'status': 'open',
-    },
-    {
-        'id': 5,
-        'date': '2026-10-06',
-        'start_time': '14:00',
-        'end_time': '14:30',
-        'topic': None,
-        'booked_by': None,
-        'status': 'open',
-    },
-    {
-        'id': 6,
-        'date': '2026-10-08',
-        'start_time': '09:00',
-        'end_time': '09:30',
-        'topic': None,
-        'booked_by': None,
-        'status': 'open',
-    },
-    {
-        'id': 7,
-        'date': '2026-10-08',
-        'start_time': '10:00',
-        'end_time': '10:30',
-        'topic': None,
-        'booked_by': None,
-        'status': 'open',
-    },
-    {
-        'id': 8,
-        'date': '2026-10-08',
-        'start_time': '11:00',
-        'end_time': '11:30',
-        'topic': None,
-        'booked_by': None,
-        'status': 'open',
-    },
-    {
-        'id': 9,
-        'date': '2026-10-08',
-        'start_time': '13:00',
-        'end_time': '13:30',
-        'topic': None,
-        'booked_by': None,
-        'status': 'open',
-    },
-    {
-        'id': 10,
-        'date': '2026-10-08',
-        'start_time': '14:00',
-        'end_time': '14:30',
-        'topic': None,
-        'booked_by': None,
-        'status': 'open',
-    },
-    {
-        'id': 11,
-        'date': '2026-10-13',
-        'start_time': '09:00',
-        'end_time': '09:30',
-        'topic': None,
-        'booked_by': None,
-        'status': 'open',
-    },
-    {
-        'id': 12,
-        'date': '2026-10-13',
-        'start_time': '10:00',
-        'end_time': '10:30',
-        'topic': None,
-        'booked_by': None,
-        'status': 'open',
-    },
-    {
-        'id': 13,
-        'date': '2026-10-13',
-        'start_time': '11:00',
-        'end_time': '11:30',
-        'topic': None,
-        'booked_by': None,
-        'status': 'open',
-    },
-    {
-        'id': 14,
-        'date': '2026-10-13',
-        'start_time': '13:00',
-        'end_time': '13:30',
-        'topic': None,
-        'booked_by': None,
-        'status': 'open',
-    },
-    {
-        'id': 15,
-        'date': '2026-10-13',
-        'start_time': '14:00',
-        'end_time': '14:30',
-        'topic': None,
-        'booked_by': None,
-        'status': 'open',
-    },
-]
+from app.core.dynamodb.schemas import SlotStatus
+from app.core.dynamodb.slots_repository import open_slots_repository
 
 
 class ProposedSlot(BaseModel):
@@ -165,45 +27,6 @@ class ProposedSlot(BaseModel):
     )
 
 
-# --- Plain functions: the single source of truth for slot state changes. The tools
-# below and the flow's deterministic booking gate both call these. ---
-
-
-def list_open_slots(date: str | None = None) -> list[dict]:
-    """Return open slots, optionally filtered to a single date."""
-    open_slots = [s for s in SLOTS if s['status'] == 'open']
-    if date:
-        open_slots = [s for s in open_slots if s['date'] == date]
-    return open_slots
-
-
-def book_slot(slot_id: int, applicant_name: str, topic: str) -> bool:
-    """Book an open slot for the applicant. Returns True on success, False if the slot
-    is unknown or no longer open."""
-    for slot in SLOTS:
-        if slot['id'] == slot_id:
-            if slot['status'] != 'open':
-                return False
-            slot['booked_by'] = applicant_name
-            slot['topic'] = topic
-            slot['status'] = 'booked'
-            return True
-    return False
-
-
-def cancel_slot(slot_id: int) -> bool:
-    """Cancel a booked slot and free it again. Returns True on success, False if the slot
-    is unknown or was not booked."""
-    for slot in SLOTS:
-        if slot['id'] == slot_id:
-            if slot['status'] != 'booked':
-                return False
-            slot['booked_by'] = None
-            slot['status'] = 'open'
-            return True
-    return False
-
-
 class ListFreeSlotsToolInput(BaseModel):
     """Input schema for ListFreeSlotsTool."""
 
@@ -222,14 +45,18 @@ class ListFreeSlotsTool(BaseTool):
     )
     args_schema: type[BaseModel] = ListFreeSlotsToolInput
 
-    async def _run(self, date: str | None = None) -> Any:
-        """Return open slots, optionally filtered to a single date."""
-        open_slots = list_open_slots(date)
-        if not open_slots:
+    async def _run(self, date: str | None = None) -> list[dict] | str:
+        """Return open slots from DynamoDB (``appointment_slots``): a single date (P9) if ``date`` is
+        given, else all open slots across dates (P9b). Never invents slots — reads the live table."""
+        async with open_slots_repository() as repo:
+            slots = (
+                await repo.list_open_slots_on_date(date) if date else await repo.list_slots_by_status(SlotStatus.OPEN)
+            )
+        if not slots:
             return f'No open consultation slots{f" on {date}" if date else ""}.'
-        return open_slots
+        return [slot.model_dump() for slot in slots]
 
 
-# NOTE: there is no Book/Cancel BaseTool. Writing a booking is deliberately kept out of
-# the agent's hands (the human-in-the-loop guard): the flow calls book_slot() / cancel_slot()
-# directly, in code, only after the human confirms.
+# NOTE: there is no Book/Cancel BaseTool. Writing a booking is deliberately kept out of the agent's
+# hands (the human-in-the-loop guard): the flow calls SlotsRepository.book_slot() / cancel_slot()
+# directly, in code (see main_flow.do_book / cancel_booking), only after the human confirms.
