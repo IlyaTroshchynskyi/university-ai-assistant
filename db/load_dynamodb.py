@@ -22,6 +22,7 @@ and docker-compose.yml), so OPENAI_API_KEY and the rest aren't needed to run it.
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 import json
 import logging
@@ -32,6 +33,10 @@ from typing import Any
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
 
+# The model, not the API: FacultyNameItem is the single definition of the key reserving a faculty
+# name, and the seed has to write it the same way POST /faculties does — a hand-rolled copy here
+# would drift the moment either side changed.
+from app.api.v1.faculty.schemas import FacultyNameItem, normalize_faculty_name
 from app.core.dynamodb.indexes import normalize_name_key
 
 logger = logging.getLogger(__name__)
@@ -81,6 +86,20 @@ def _end_of_day_epoch(date_str: str) -> int:
     return int((day + timedelta(days=1)).timestamp())
 
 
+def _reject_duplicate_faculty_names(faculties: list[dict[str, Any]]) -> None:
+    """Stop the load if two seeded faculties share a name.
+
+    Programmes and courses name their faculty rather than referencing its id, so the lookup below is
+    keyed by name — and a repeated name would quietly resolve to whichever faculty came last, taking
+    every programme and course pointing at the other one with it. The API refuses a duplicate name
+    outright (``FacultyNameItem``); the seed has no business creating what the API forbids, so it
+    fails loudly here instead."""
+    seen = Counter(normalize_faculty_name(f['name']) for f in faculties)
+    repeated = [name for name, count in seen.items() if count > 1]
+    if repeated:
+        raise ValueError(f'faculties.json: duplicate faculty names: {", ".join(sorted(repeated))}')
+
+
 # --- seed -> items transformation (following the key maps in 02-dynamodb-model.md) --------------
 def build_university_items() -> list[dict[str, Any]]:
     faculties = _load('faculties')
@@ -94,6 +113,7 @@ def build_university_items() -> list[dict[str, Any]]:
 
     # The seed stores a faculty by NAME, and groups.program_id as a number; we resolve them to a
     # faculty_id and a program slug, as settled in the document.
+    _reject_duplicate_faculty_names(faculties)
     faculty_id_by_name = {f['name']: f['id'] for f in faculties}
     program_slug_by_id = {p['id']: p['program_id'] for p in programs}
 
@@ -101,6 +121,9 @@ def build_university_items() -> list[dict[str, Any]]:
 
     for f in faculties:
         items.append({'pk': f'FACULTY#{f["id"]}', 'sk': '#META', 'entity_type': 'faculty', **_str_ids(f)})
+        # The row reserving the name, written exactly as POST /faculties writes it. A seeded faculty
+        # without one leaves its name free for the API to hand out a second time.
+        items.append(FacultyNameItem(name=f['name'], faculty_id=str(f['id'])).model_dump())
 
     for p in programs:
         fid = faculty_id_by_name[p['faculty']]

@@ -50,6 +50,7 @@ The criterion for splitting: **together** — if they are read by one query or s
 | P8 | A professor's courses | `university` | GSI2: `gsi2pk = PROF#{id}`, `gsi2sk begins_with COURSE#` |
 | P13 | A point read (faculty/programme/professor/course/room/place by id) | `university` | base: `pk = <ENTITY>#{id}`, `sk = #META` |
 | P14 | Every campus place | `university` | GSI1: `gsi1pk = TYPE#PLACE` |
+| P16 | Every faculty | `university` | **Scan** + filter `entity_type = faculty` — a deliberate exception, see 'P16: the one Scan' below |
 | P15 | Professor search **by name** (without knowing the faculty) | `university` | GSI_NAME: `gsi_name_pk = PROF`, `gsi_name_sk begins_with {name}` |
 | P9 | Open slots on a date (topic optional) | `appointment_slots` | base: `pk = {date}`, filter `status = open` (+ `topic`) |
 | P9b | Open slots by status (all dates) | `appointment_slots` | GSI1: `gsi1pk = STATUS#{status}` |
@@ -77,7 +78,7 @@ Base keys `pk`/`sk`, two GSIs with overloaded keys, plus one named special-purpo
 
 | Entity | pk | sk | gsi1pk | gsi1sk | gsi2pk | gsi2sk |
 |--------|----|----|--------|--------|--------|--------|
-| Faculty | `FACULTY#{id}` | `#META` | — | — | — | — |
+| Faculty | `FACULTY#{id}` | `#META` | — ¹ | — ¹ | — | — |
 | Program | `PROGRAM#{slug}` | `#META` | `FACULTY#{faculty_id}` | `PROGRAM#{name}` | — | — |
 | Group | `GROUP#{id}` | `#META` | `PROGRAM#{slug}` | `GROUP#{id}` | — | — |
 | Professor | `PROF#{id}` | `#META` | `FACULTY#{faculty_id}` | `PROF#{full_name}` | — | — |
@@ -85,6 +86,39 @@ Base keys `pk`/`sk`, two GSIs with overloaded keys, plus one named special-purpo
 | Room | `ROOM#{id}` | `#META` | — | — | — | — |
 | Place | `PLACE#{id}` | `#META` | `TYPE#PLACE` | `PLACE#{name}` | — | — |
 | Schedule | `GROUP#{group_id}` | `SCHED#{wd}#{start}` | `PROF#{professor_id}` | `SCHED#{wd}#{start}` | `ROOM#{room_id}` | `SCHED#{wd}#{start}` |
+| Faculty name ² | `FACULTY_NAME#{name}` | `#UNIQUE` | — | — | — | — |
+
+¹ Faculty is the one entity carrying no GSI keys, which is why P16 is served by a Scan — see below.
+
+² Not an entity — a constraint. See 'Reserving a faculty name' below.
+
+#### Reserving a faculty name
+
+DynamoDB enforces uniqueness on the primary key and nowhere else. A faculty's own key is `FACULTY#{uuid4}`, minted fresh on every create, so `attribute_not_exists(pk)` on it can never fail — two `POST /faculties {"name": "Computer Science"}` would both succeed, which matters because programmes and courses in the seed name their faculty rather than referencing its id (`db/load_dynamodb.py`, `ProgramCreate.faculty` / `CourseCreate.faculty`).
+
+So the name gets a primary key of its own: `pk = FACULTY_NAME#{name}`, `sk = #UNIQUE`, lowercased with whitespace collapsed (`FacultyNameItem`, `normalize_faculty_name`) so that 'Computer Science' and 'computer  science' land on the same key. `FacultyRepository.create_faculty` writes it and the faculty in one `TransactWriteItems`, conditioned on `attribute_not_exists(pk)` — the *second* action is the one a duplicate name fails on, which is how the cancelled transaction is told apart from any other. `delete_faculty` removes both rows, again transactionally: a reservation outliving its faculty would keep a name unusable for good.
+
+The row deliberately carries no `entity_type` and no GSI keys — nothing indexes it, and P16's `entity_type = faculty` filter steps over it rather than trying to read it as a faculty. The seed writes one per faculty (six rows) and refuses to load a `faculties.json` with a repeated name, which would otherwise collapse into whichever faculty came last and take every programme pointing at the other one with it.
+
+#### Deleting a faculty
+
+Programmes, professors and courses reference a faculty by id and are **not** deleted with it, so `DELETE /faculties/{id}` first asks whether any exist and answers **409** if they do, rather than cascading. All three sit in the one GSI1 partition `FACULTY#{id}` (P4/P5/P6), so the check is a single query capped at one row (`FacultyRepository.has_dependants`).
+
+It is a read, though: a programme created immediately after the check passes is still orphaned. Closing that needs a dependant counter on the faculty row, updated by whatever creates a programme — which is the point at which to add it, since nothing creates one yet.
+
+#### P16: the one Scan
+
+'Every faculty' (`GET /faculties`, `FacultyRepository.list_faculties`) is served by a **Scan of the whole `university` table with a filter on `entity_type = faculty`** — the one place in the model that breaks the 'an index, not a Scan' rule stated for GSI_NAME below. Recorded here rather than left implicit, because the code and this document have to agree on it.
+
+What that costs: a DynamoDB `FilterExpression` is applied **after** the read, so every call reads (and is billed for) the entire table — 89 items from the seed, unbounded in production — to return ~6 faculties. `DynamoDBService.scan` is called without a `limit`, so `_paginate` follows `LastEvaluatedKey` to the end. Faculty also has no sort key of any kind, so the listing comes back in **undefined order**.
+
+Why it stands for now: faculties are a tiny, near-static reference list, and the endpoint is administrative rather than on a student-facing path. The `entity_type` filter is what keeps every other entity in the shared table out of the result.
+
+The fix, when it is worth doing, is the same shape as P14 (`TYPE#PLACE`) — and it is three changes, not one, because a GSI is sparse and rows written without its keys never enter it:
+
+1. `FacultyItem` extends `ListedItem` instead of `TableItem` (giving `gsi1pk = TYPE#FACULTY`), declaring `gsi1sk = FACULTY#{name}` so the listing is ordered.
+2. `list_faculties` becomes a Query on GSI1 — the `entity_type` filter then falls away, since the index holds faculties only.
+3. `db/load_dynamodb.py` writes `gsi1pk`/`gsi1sk` for faculties. **Without this the seeded faculties are invisible to the new query** and the endpoint quietly returns `[]`.
 
 **The special-purpose `GSI_NAME` index (Professor only):**
 
@@ -216,6 +250,6 @@ A single `pk = GROUP#1` query returns **all of those rows at once**, ordered by 
 2. **Model it in NoSQL Workbench** — check the partitions/GSIs visually, against the real data in `db/seed/`.
 3. **Create the 3 tables** (`university`, `appointment_slots`, `reported_issues`) with their GSIs, billing mode `PAY_PER_REQUEST` for the dev environment; enable a **TTL** on `appointment_slots` over the `expires_at` attribute.
 4. **Write a seed → items loader** — transforming the JSON in `db/seed/` into items following the key maps (BatchWriteItem). Implemented in `db/load_dynamodb.py`.
-5. **Implement repositories on top of `DynamoDBService`** — one service instance per table, one method per access pattern (P1…P14), with `Key(...)`/`begins_with`.
+5. **Implement repositories on top of `DynamoDBService`** — one service instance per table, one method per access pattern (P1…P16), with `Key(...)`/`begins_with`.
 6. **Add a `ScanIndexForward` parameter to `DynamoDBService.query`** — needed for P11 (top reports) and for the schedule in reverse order.
 7. **Decide on the 'student' entity** (note #3 in `01-relational-schema.md`): for now `booked_by` is just an email attribute; a full student profile could be introduced as a separate table or item type (`pk = STUDENT#{email}`) — and then co-locating bookings would make sense again.

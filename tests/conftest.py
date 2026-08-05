@@ -1,7 +1,7 @@
-from asyncio import DefaultEventLoopPolicy
+from asyncio import AbstractEventLoop, DefaultEventLoopPolicy
 from contextlib import AsyncExitStack
 import os
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Callable, TypeAlias
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -16,6 +16,7 @@ from tests.db_utils import _table, get_dynamo_base_service, get_table_specs, Tab
 from tests.dependencies import override_app_test_dependencies
 
 TEST_HOST = 'http://test'
+LoopFactory: TypeAlias = Callable[[], AbstractEventLoop]
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -50,9 +51,11 @@ async def not_auth_client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
         yield client
 
 
-@pytest.fixture(scope='session', params=(DefaultEventLoopPolicy(),))
-def event_loop_policy(request) -> DefaultEventLoopPolicy:
-    return request.param
+def pytest_asyncio_loop_factories(config: pytest.Config, item: pytest.Item) -> dict[str, LoopFactory]:
+    """Run the suite on the stdlib asyncio loop rather than whatever policy happens to be installed
+    (uvloop ships in this venv). The ``event_loop_policy`` fixture used to do this; pytest-asyncio
+    1.x deprecated overriding it in favour of this hook."""
+    return {'asyncio': DefaultEventLoopPolicy().new_event_loop}
 
 
 @pytest_asyncio.fixture(scope='session', loop_scope='session')

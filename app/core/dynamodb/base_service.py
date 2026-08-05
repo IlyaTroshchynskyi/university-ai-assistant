@@ -11,10 +11,13 @@ from typing import Any, TypeVar
 
 from boto3.dynamodb.conditions import BuiltConditionExpression, ConditionBase, ConditionExpressionBuilder
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
+from botocore.exceptions import ClientError
 from pydantic import BaseModel
 from types_aiobotocore_dynamodb import DynamoDBClient
+from types_aiobotocore_dynamodb.type_defs import TransactWriteItemTypeDef
 
 from app.core.dynamodb.indexes import Index
+from app.core.dynamodb.schemas import TransactAction, TransactPut
 
 Item = TypeVar('Item', bound=BaseModel)
 
@@ -98,6 +101,29 @@ class DynamoDBService:
             self._set_expressions(kwargs, names, values)
         await self._client.delete_item(**kwargs)
 
+    async def transact_write(self, *actions: TransactAction) -> None:
+        """Apply several writes as one all-or-nothing ``TransactWriteItems``."""
+        transact_items: list[TransactWriteItemTypeDef] = []
+        for action in actions:
+            entry: dict[str, Any] = {'TableName': self._table_name}
+            if isinstance(action, TransactPut):
+                entry['Item'] = self._serialize(action.item.model_dump())
+            else:
+                entry['Key'] = self._serialize(action.key)
+            if action.condition is not None:
+                expr, names, values = self._build_condition(action.condition)
+                entry['ConditionExpression'] = expr
+                self._set_expressions(entry, names, values)
+            transact_items.append({'Put': entry} if isinstance(action, TransactPut) else {'Delete': entry})
+
+        await self._client.transact_write_items(TransactItems=transact_items)
+
+    @staticmethod
+    def get_failed_condition_indexes(error: ClientError) -> set[int]:
+        """Which actions of a cancelled transaction failed their condition, by position in the call."""
+        reasons = error.response.get('CancellationReasons', [])
+        return {i for i, reason in enumerate(reasons) if reason.get('Code') == 'ConditionalCheckFailed'}
+
     async def query(
         self,
         key_condition: ConditionBase,
@@ -130,6 +156,13 @@ class DynamoDBService:
 
         if index_name is not None:
             kwargs['IndexName'] = index_name
+
+        if limit is not None:
+            # Caps what DynamoDB *reads* per page, not merely what we keep, so an existence check
+            # (limit=1) costs one row instead of a full 1 MB page. The cap applies before any
+            # FilterExpression, hence a page can come back short — which is why ``_paginate`` keeps
+            # following LastEvaluatedKey rather than treating one page as the whole answer.
+            kwargs['Limit'] = limit
 
         self._set_expressions(kwargs, names, {ph: _SERIALIZER.serialize(v) for ph, v in values.items()})
         return await self._paginate(self._client.query, kwargs, limit)
