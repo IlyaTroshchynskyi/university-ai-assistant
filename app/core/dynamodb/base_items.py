@@ -45,10 +45,16 @@ class TableItem(BaseModel):
     def sk(self) -> str:
         return self.meta_sk
 
+    @classmethod
+    def entity_type_value(cls) -> str:
+        """The ``entity_type`` an item of this class is written with — derived from the class alone,
+        which is all a query filtering on it has to work with (there is no item yet)."""
+        return cls.entity.lower()
+
     @computed_field
     @property
     def entity_type(self) -> str:
-        return self.entity.lower()
+        return self.entity_type_value()
 
 
 class ListedItem(TableItem):

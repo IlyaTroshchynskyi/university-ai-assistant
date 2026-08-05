@@ -18,14 +18,6 @@ from app.core.dynamodb.base_items import ListedItem
 # Todo refactor to diff modules
 
 
-class FacultyCreate(BaseModel):
-    name: str = Field(min_length=2, max_length=100)
-
-
-class Faculty(FacultyCreate):
-    id: str
-
-
 class ProgramCreate(BaseModel):
     # Human-readable slug the programme is known by ('cs-software-engineering') — a business key
     # chosen by whoever creates it, not an entity id (that's the UUID in ``Program.id``).

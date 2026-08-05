@@ -1,5 +1,8 @@
+from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
 
+from boto3.dynamodb.conditions import ConditionBase
 from pydantic import BaseModel
 
 
@@ -35,3 +38,22 @@ class Slot(BaseModel):
     topic: str | None = None
     booked_by: str | None = None  # student email; set once booked
     expires_at: int | None = None  # epoch seconds — TTL attribute
+
+
+@dataclass(frozen=True, slots=True)
+class TransactPut:
+    """A 'write this item' step of a transaction, with the condition guarding it."""
+
+    item: BaseModel
+    condition: ConditionBase | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TransactDelete:
+    """A 'remove the item at this key' step of a transaction, with the condition guarding it."""
+
+    key: dict[str, Any]
+    condition: ConditionBase | None = None
+
+
+TransactAction = TransactPut | TransactDelete
