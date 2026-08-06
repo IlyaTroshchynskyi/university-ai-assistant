@@ -3,10 +3,7 @@ from typing import Annotated, ClassVar
 from pydantic import BaseModel, computed_field, StringConstraints
 
 from app.core.dynamodb.base_items import TableItem
-
-
-def normalize_faculty_name(name: str) -> str:
-    return ' '.join(name.lower().split())
+from app.core.dynamodb.indexes import normalize_name
 
 
 class FacultyCreate(BaseModel):
@@ -42,12 +39,12 @@ class FacultyNameItem(BaseModel):
     def key(cls, name: str) -> dict[str, str]:
         """The primary key reserving ``name`` — what deleting the reservation needs, built from the
         name alone."""
-        return {'pk': f'{cls.entity}#{normalize_faculty_name(name)}', 'sk': cls.unique_sk}
+        return {'pk': f'{cls.entity}#{normalize_name(name)}', 'sk': cls.unique_sk}
 
     @computed_field
     @property
     def pk(self) -> str:
-        return f'{self.entity}#{normalize_faculty_name(self.name)}'
+        return f'{self.entity}#{normalize_name(self.name)}'
 
     @computed_field
     @property

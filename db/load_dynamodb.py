@@ -36,8 +36,9 @@ from boto3.dynamodb.conditions import Attr, Key
 # The model, not the API: FacultyNameItem is the single definition of the key reserving a faculty
 # name, and the seed has to write it the same way POST /faculties does — a hand-rolled copy here
 # would drift the moment either side changed.
-from app.api.v1.faculty.schemas import FacultyNameItem, normalize_faculty_name
-from app.core.dynamodb.indexes import normalize_name_key
+from app.api.v1.faculty.schemas import FacultyNameItem
+from app.api.v1.programs.schemas import ProgramNameItem
+from app.core.dynamodb.indexes import normalize_name, normalize_name_key
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +67,9 @@ def _clean(item: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in item.items() if v is not None}
 
 
-# The identifier fields: an entity's own id and every reference to another one. programs.program_id
-# is a slug, already a string, so it passes through; groups.program_id is a number and becomes one.
+# The identifier fields: an entity's own id and every reference to another one. Kept as a superset:
+# not every listed field is currently reached (groups are built as a literal dict, so their
+# program_id is stringified inline), but an entity later routed through _str_ids gets it for free.
 _ID_FIELDS = frozenset({'id', 'faculty_id', 'program_id', 'professor_id', 'room_id', 'group_id', 'course_id'})
 
 
@@ -94,10 +96,25 @@ def _reject_duplicate_faculty_names(faculties: list[dict[str, Any]]) -> None:
     every programme and course pointing at the other one with it. The API refuses a duplicate name
     outright (``FacultyNameItem``); the seed has no business creating what the API forbids, so it
     fails loudly here instead."""
-    seen = Counter(normalize_faculty_name(f['name']) for f in faculties)
+    seen = Counter(normalize_name(f['name']) for f in faculties)
     repeated = [name for name, count in seen.items() if count > 1]
     if repeated:
         raise ValueError(f'faculties.json: duplicate faculty names: {", ".join(sorted(repeated))}')
+
+
+def _reject_duplicate_program_names(programs: list[dict[str, Any]]) -> None:
+    """Stop the load if two seeded programmes share a name within one faculty.
+
+    ``POST /programs`` reserves that pair in a row of its own. Seeding a collision would write one
+    reservation row for two programmes, leaving whichever lost the race holding a name that nothing
+    reserves — so, as with faculties, the seed refuses to create what the API forbids."""
+    # Both halves normalized, as ``_reject_duplicate_faculty_names`` does — grouping by the raw
+    # faculty name would read 'Computer  Science' and 'Computer Science' as two different faculties
+    # and let a duplicate programme name through.
+    seen = Counter((normalize_name(p['faculty']), normalize_name(p['name'])) for p in programs)
+    repeated = [f'{faculty}/{name}' for (faculty, name), count in seen.items() if count > 1]
+    if repeated:
+        raise ValueError(f'programs.json: duplicate names within a faculty: {", ".join(sorted(repeated))}')
 
 
 # --- seed -> items transformation (following the key maps in 02-dynamodb-model.md) --------------
@@ -111,11 +128,12 @@ def build_university_items() -> list[dict[str, Any]]:
     places = _load('places')
     schedule = _load('schedule')
 
-    # The seed stores a faculty by NAME, and groups.program_id as a number; we resolve them to a
-    # faculty_id and a program slug, as settled in the document.
+    # The seed stores a faculty by NAME, so it is resolved to a faculty_id here. A programme is keyed
+    # by its **id**, matching what ``POST /programs`` writes, and everything referencing a programme
+    # references that id — a primary key cannot be renamed, so nothing human-editable belongs in one.
     _reject_duplicate_faculty_names(faculties)
+    _reject_duplicate_program_names(programs)
     faculty_id_by_name = {f['name']: f['id'] for f in faculties}
-    program_slug_by_id = {p['id']: p['program_id'] for p in programs}
 
     items: list[dict[str, Any]] = []
 
@@ -129,13 +147,12 @@ def build_university_items() -> list[dict[str, Any]]:
         fid = faculty_id_by_name[p['faculty']]
         items.append(
             {
-                'pk': f'PROGRAM#{p["program_id"]}',
+                'pk': f'PROGRAM#{p["id"]}',
                 'sk': '#META',
                 'gsi1pk': f'FACULTY#{fid}',
                 'gsi1sk': f'PROGRAM#{p["name"]}',
                 'entity_type': 'program',
                 'id': str(p['id']),
-                'program_id': p['program_id'],
                 'name': p['name'],
                 'faculty_id': str(fid),
                 'degree': p['degree'],
@@ -143,20 +160,22 @@ def build_university_items() -> list[dict[str, Any]]:
                 'tuition_usd': p['tuition_usd'],
             }
         )
+        # The row reserving the programme's name, written exactly as POST /programs writes it. A
+        # seeded programme without one leaves its name free for the API to hand out a second time.
+        items.append(ProgramNameItem(faculty_id=str(fid), name=p['name'], program_id=str(p['id'])).model_dump())
 
     for g in groups:
-        slug = program_slug_by_id[g['program_id']]
         items.append(
             {
                 'pk': f'GROUP#{g["id"]}',
                 'sk': '#META',
-                'gsi1pk': f'PROGRAM#{slug}',
+                # By programme **id**, matching the programme's own pk.
+                'gsi1pk': f'PROGRAM#{g["program_id"]}',
                 'gsi1sk': f'GROUP#{g["id"]}',
                 'entity_type': 'group',
                 'id': str(g['id']),
                 'name': g['name'],
                 'program_id': str(g['program_id']),
-                'program_slug': slug,
             }
         )
 

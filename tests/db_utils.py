@@ -16,6 +16,12 @@ BATCH_WRITE_LIMIT = 25
 Seeder = Callable[[DynamoDBService, list[Item]], Awaitable[None]]
 
 
+def university_service(db_client: DynamoDBClient) -> DynamoDBService:
+    """The generic service pointed at the university table — what a factory uses to read or write a
+    row directly, without going through a repository."""
+    return DynamoDBService(db_client, get_settings().DYNAMODB_UNIVERSITY_TABLE)
+
+
 @dataclass(frozen=True)
 class TableSpec:
     name: str

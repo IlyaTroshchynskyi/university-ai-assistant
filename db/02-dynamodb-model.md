@@ -46,7 +46,7 @@ The criterion for splitting: **together** — if they are read by one query or s
 | P4 | A faculty's programmes | `university` | GSI1: `gsi1pk = FACULTY#{id}`, `gsi1sk begins_with PROGRAM#` |
 | P5 | A faculty's professors | `university` | GSI1: `gsi1pk = FACULTY#{id}`, `gsi1sk begins_with PROF#` |
 | P6 | A faculty's courses | `university` | GSI1: `gsi1pk = FACULTY#{id}`, `gsi1sk begins_with COURSE#` |
-| P7 | A programme's groups | `university` | GSI1: `gsi1pk = PROGRAM#{slug}`, `gsi1sk begins_with GROUP#` |
+| P7 | A programme's groups | `university` | GSI1: `gsi1pk = PROGRAM#{id}`, `gsi1sk begins_with GROUP#` |
 | P8 | A professor's courses | `university` | GSI2: `gsi2pk = PROF#{id}`, `gsi2sk begins_with COURSE#` |
 | P13 | A point read (faculty/programme/professor/course/room/place by id) | `university` | base: `pk = <ENTITY>#{id}`, `sk = #META` |
 | P14 | Every campus place | `university` | GSI1: `gsi1pk = TYPE#PLACE` |
@@ -79,8 +79,8 @@ Base keys `pk`/`sk`, two GSIs with overloaded keys, plus one named special-purpo
 | Entity | pk | sk | gsi1pk | gsi1sk | gsi2pk | gsi2sk |
 |--------|----|----|--------|--------|--------|--------|
 | Faculty | `FACULTY#{id}` | `#META` | — ¹ | — ¹ | — | — |
-| Program | `PROGRAM#{slug}` | `#META` | `FACULTY#{faculty_id}` | `PROGRAM#{name}` | — | — |
-| Group | `GROUP#{id}` | `#META` | `PROGRAM#{slug}` | `GROUP#{id}` | — | — |
+| Program | `PROGRAM#{id}` | `#META` | `FACULTY#{faculty_id}` | `PROGRAM#{name}` | — | — |
+| Group | `GROUP#{id}` | `#META` | `PROGRAM#{program_id}` | `GROUP#{id}` | — | — |
 | Professor | `PROF#{id}` | `#META` | `FACULTY#{faculty_id}` | `PROF#{full_name}` | — | — |
 | Course | `COURSE#{id}` | `#META` | `FACULTY#{faculty_id}` | `COURSE#{name}` | `PROF#{professor_id}` | `COURSE#{id}` |
 | Room | `ROOM#{id}` | `#META` | — | — | — | — |
@@ -94,9 +94,9 @@ Base keys `pk`/`sk`, two GSIs with overloaded keys, plus one named special-purpo
 
 #### Reserving a faculty name
 
-DynamoDB enforces uniqueness on the primary key and nowhere else. A faculty's own key is `FACULTY#{uuid4}`, minted fresh on every create, so `attribute_not_exists(pk)` on it can never fail — two `POST /faculties {"name": "Computer Science"}` would both succeed, which matters because programmes and courses in the seed name their faculty rather than referencing its id (`db/load_dynamodb.py`, `ProgramCreate.faculty` / `CourseCreate.faculty`).
+DynamoDB enforces uniqueness on the primary key and nowhere else. A faculty's own key is `FACULTY#{uuid4}`, minted fresh on every create, so `attribute_not_exists(pk)` on it can never fail — two `POST /faculties {"name": "Computer Science"}` would both succeed, which matters because programmes and courses in the seed name their faculty rather than referencing its id (`db/load_dynamodb.py`, the `faculty` field of `programs.json` / `courses.json`; the API takes a `faculty_id`).
 
-So the name gets a primary key of its own: `pk = FACULTY_NAME#{name}`, `sk = #UNIQUE`, lowercased with whitespace collapsed (`FacultyNameItem`, `normalize_faculty_name`) so that 'Computer Science' and 'computer  science' land on the same key. `FacultyRepository.create_faculty` writes it and the faculty in one `TransactWriteItems`, conditioned on `attribute_not_exists(pk)` — the *second* action is the one a duplicate name fails on, which is how the cancelled transaction is told apart from any other. `delete_faculty` removes both rows, again transactionally: a reservation outliving its faculty would keep a name unusable for good.
+So the name gets a primary key of its own: `pk = FACULTY_NAME#{name}`, `sk = #UNIQUE`, lowercased with whitespace collapsed (`FacultyNameItem`, `normalize_name`) so that 'Computer Science' and 'computer  science' land on the same key. `FacultyRepository.create_faculty` writes it and the faculty in one `TransactWriteItems`, conditioned on `attribute_not_exists(pk)` — the *second* action is the one a duplicate name fails on, which is how the cancelled transaction is told apart from any other. `delete_faculty` removes both rows, again transactionally: a reservation outliving its faculty would keep a name unusable for good.
 
 The row deliberately carries no `entity_type` and no GSI keys — nothing indexes it, and P16's `entity_type = faculty` filter steps over it rather than trying to read it as a faculty. The seed writes one per faculty (six rows) and refuses to load a `faculties.json` with a repeated name, which would otherwise collapse into whichever faculty came last and take every programme pointing at the other one with it.
 

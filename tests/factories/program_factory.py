@@ -1,13 +1,8 @@
-from uuid import uuid4
+from polyfactory.factories.pydantic_factory import ModelFactory
 
-from pydantic import BaseModel, Field
+from app.api.v1.programs.schemas import ProgramCreate
 
 
-class ProgramRow(BaseModel):
-    """A programme as the table stores it, cut down to what a faculty's dependants check can see."""
-
-    pk: str = Field(default_factory=lambda: f'PROGRAM#{uuid4()}')
-    sk: str = '#META'
-    gsi1pk: str
-    gsi1sk: str = 'PROGRAM#Test Programme'
-    entity_type: str = 'program'
+class ProgramCreationFactory(ModelFactory[ProgramCreate]):
+    __model__ = ProgramCreate
+    __check_model__ = False

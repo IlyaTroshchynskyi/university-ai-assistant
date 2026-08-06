@@ -3,12 +3,6 @@ from enum import StrEnum
 # Todo move later to other entities
 
 
-class Degree(StrEnum):
-    BSC = 'BSc'
-    BA = 'BA'
-    LLB = 'LLB'
-
-
 class ProfessorTitle(StrEnum):
     PROFESSOR = 'Professor'
     ASSOCIATE_PROFESSOR = 'Associate Professor'

@@ -17,12 +17,20 @@ from types_aiobotocore_dynamodb import DynamoDBClient
 from types_aiobotocore_dynamodb.type_defs import TransactWriteItemTypeDef
 
 from app.core.dynamodb.indexes import Index
-from app.core.dynamodb.schemas import TransactAction, TransactPut
+from app.core.dynamodb.schemas import TransactAction, TransactConditionCheck, TransactDelete, TransactPut
 
 Item = TypeVar('Item', bound=BaseModel)
 
 _SERIALIZER = TypeSerializer()
 _DESERIALIZER = TypeDeserializer()
+
+# Which member of a ``TransactWriteItems`` entry each action becomes. Keyed by type rather than
+# branched on, so a fourth action (``Update``) is one line here rather than another elif.
+_TRANSACT_MEMBER: dict[type, str] = {
+    TransactPut: 'Put',
+    TransactDelete: 'Delete',
+    TransactConditionCheck: 'ConditionCheck',
+}
 
 
 class DynamoDBService:
@@ -102,7 +110,11 @@ class DynamoDBService:
         await self._client.delete_item(**kwargs)
 
     async def transact_write(self, *actions: TransactAction) -> None:
-        """Apply several writes as one all-or-nothing ``TransactWriteItems``."""
+        """Apply several writes as one all-or-nothing ``TransactWriteItems``.
+
+        A ``TransactConditionCheck`` writes nothing — it only asserts something about a row the
+        transaction leaves alone (that a parent still exists, say). It still counts as one of the
+        100 actions, and its position still shows up in ``get_failed_condition_indexes``."""
         transact_items: list[TransactWriteItemTypeDef] = []
         for action in actions:
             entry: dict[str, Any] = {'TableName': self._table_name}
@@ -114,7 +126,7 @@ class DynamoDBService:
                 expr, names, values = self._build_condition(action.condition)
                 entry['ConditionExpression'] = expr
                 self._set_expressions(entry, names, values)
-            transact_items.append({'Put': entry} if isinstance(action, TransactPut) else {'Delete': entry})
+            transact_items.append({_TRANSACT_MEMBER[type(action)]: entry})
 
         await self._client.transact_write_items(TransactItems=transact_items)
 

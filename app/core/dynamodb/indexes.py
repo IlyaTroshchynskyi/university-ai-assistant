@@ -28,12 +28,12 @@ class KeyAttr(StrEnum):
     """Key/index **attribute** names shared across the tables — the generic ``pk``/``sk`` plus each
     GSI's partition/sort keys. Pass a member straight into ``Key(...)`` instead of a literal."""
 
-    # base partition: Faculty/Program/Group/Professor/Course/Room/Place=<ENTITY>#{id|slug},
+    # base partition: Faculty/Program/Group/Professor/Course/Room/Place=<ENTITY>#{id},
     # Schedule=GROUP#{group_id}, Slot={date}, Issue={category}
     PK = 'pk'
     # base sort: entities=#META, Schedule=SCHED#{wd}#{start}, Slot={start}#{id}, Issue={votes}#{id}
     SK = 'sk'
-    # GSI1 partition — Program/Professor/Course=FACULTY#{faculty_id}, Group=PROGRAM#{slug}, Place=TYPE#PLACE,
+    # GSI1 partition — Program/Professor/Course=FACULTY#{faculty_id}, Group=PROGRAM#{program_id}, Place=TYPE#PLACE,
     # Schedule=PROF#{professor_id}, Slot/Issue=STATUS#{status}
     GSI1_PK = 'gsi1pk'
     # GSI1 sort — Program=PROGRAM#{name}, Group=GROUP#{id}, Professor=PROF#{full_name}, Course=COURSE#{name},
@@ -47,6 +47,17 @@ class KeyAttr(StrEnum):
     GSI_NAME_PK = 'gsi_name_pk'
     # GSI_NAME sort — Professor=normalized full_name (lowercased, title-stripped)
     GSI_NAME_SK = 'gsi_name_sk'
+
+
+def normalize_name(name: str) -> str:
+    """A name as a uniqueness key stores it: lowercased, with runs of whitespace collapsed to one
+    space ('Computer  SCIENCE ' -> 'computer science').
+
+    Lives here for the same reason as ``normalize_name_key`` below: a key only matches when both
+    sides derive it the same way, so the writer and the reader have to share one implementation —
+    and so do the entities that reserve a name (faculties, programmes), which is why this is not
+    per-entity."""
+    return ' '.join(name.lower().split())
 
 
 # Leading words dropped from a name before it becomes a key. A sort key supports ``begins_with`` but
