@@ -56,4 +56,20 @@ class TransactDelete:
     condition: ConditionBase | None = None
 
 
-TransactAction = TransactPut | TransactDelete
+@dataclass(frozen=True, slots=True)
+class TransactConditionCheck:
+    """An 'assert this about an item we are *not* writing' step of a transaction.
+
+    How a foreign key is enforced: a program may only be created while its faculty exists, and
+    reading the faculty first would be a race — another request could delete it between the read and
+    the write. Checking it inside the same transaction closes that window, since DynamoDB evaluates
+    every action against one consistent view and cancels the whole thing if any condition fails.
+
+    ``condition`` is mandatory here, unlike on the other actions: a check that asserts nothing has
+    no reason to be in the transaction at all."""
+
+    key: dict[str, Any]
+    condition: ConditionBase
+
+
+TransactAction = TransactPut | TransactDelete | TransactConditionCheck

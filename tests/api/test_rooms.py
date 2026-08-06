@@ -1,7 +1,6 @@
 from operator import itemgetter
 
 from app.api.v1.rooms.schemas import Room
-from app.settings import get_settings
 from tests.conftest import TestBaseClientDBClass
 from tests.factories.factory_creators import create_test_room
 from tests.factories.factory_getters import get_test_room
@@ -20,9 +19,8 @@ class TestRooms(TestBaseClientDBClass):
     async def test_list_room(self):
         room1 = RoomCreationFactory.build()
         room2 = RoomCreationFactory.build()
-        settings = get_settings()
-        await create_test_room(room1, self.dynamo_client, settings)
-        await create_test_room(room2, self.dynamo_client, settings)
+        await create_test_room(room1, self.dynamo_client)
+        await create_test_room(room2, self.dynamo_client)
 
         response = await self.not_auth_client.get('/rooms')
 
@@ -37,10 +35,9 @@ class TestRooms(TestBaseClientDBClass):
         assert result == sorted((room1.model_dump(), room2.model_dump()), key=itemgetter('building', 'number'))
 
     async def test_list_rooms_orders_by_building_then_number(self):
-        settings = get_settings()
         for building, number in (('Turing Hall', 201), ('Ada Wing', 3), ('Turing Hall', 105)):
             room = RoomCreationFactory.build(building=building, number=number)
-            await create_test_room(room, self.dynamo_client, settings)
+            await create_test_room(room, self.dynamo_client)
 
         response = await self.not_auth_client.get('/rooms')
 
@@ -54,7 +51,7 @@ class TestRooms(TestBaseClientDBClass):
         ]
 
     async def test_find_room(self):
-        created = await create_test_room(RoomCreationFactory.build(), self.dynamo_client, get_settings())
+        created = await create_test_room(RoomCreationFactory.build(), self.dynamo_client)
 
         response = await self.not_auth_client.get(f'/rooms/{created.id}')
 
@@ -68,12 +65,12 @@ class TestRooms(TestBaseClientDBClass):
         assert response.json() == {'detail': 'Room not found with id = no-such-id'}
 
     async def test_delete_room(self):
-        created = await create_test_room(RoomCreationFactory.build(), self.dynamo_client, get_settings())
+        created = await create_test_room(RoomCreationFactory.build(), self.dynamo_client)
 
         response = await self.not_auth_client.delete(f'/rooms/{created.id}')
 
         assert response.status_code == 204
-        assert await get_test_room(created.id, self.dynamo_client, get_settings()) is None
+        assert await get_test_room(created.id, self.dynamo_client) is None
 
     async def test_delete_room_missing(self):
         response = await self.not_auth_client.delete('/rooms/no-such-id')

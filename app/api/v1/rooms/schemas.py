@@ -4,7 +4,6 @@ from typing import ClassVar
 from pydantic import BaseModel, computed_field, EmailStr, Field
 
 from app.api.v1.rooms.enums import (
-    Degree,
     IssueCategory,
     IssueStatus,
     ProfessorTitle,
@@ -16,21 +15,6 @@ from app.api.v1.rooms.enums import (
 from app.core.dynamodb.base_items import ListedItem
 
 # Todo refactor to diff modules
-
-
-class ProgramCreate(BaseModel):
-    # Human-readable slug the programme is known by ('cs-software-engineering') — a business key
-    # chosen by whoever creates it, not an entity id (that's the UUID in ``Program.id``).
-    program_id: str = Field(min_length=3, max_length=60, pattern=r'^[a-z0-9]+(-[a-z0-9]+)*$')
-    name: str = Field(min_length=2, max_length=120)
-    faculty: str = Field(min_length=2, max_length=100)  # faculty *name*, not id
-    degree: Degree
-    duration_years: int = Field(ge=1, le=8)
-    tuition_usd: int = Field(ge=0, le=1_000_000)
-
-
-class Program(ProgramCreate):
-    id: str
 
 
 class GroupCreate(BaseModel):

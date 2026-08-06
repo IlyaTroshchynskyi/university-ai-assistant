@@ -253,7 +253,7 @@ Student reports and complaints. A standalone table.
 The specifics that will shape the key/table design in DynamoDB (in more detail — in `02-dynamodb-model.md`):
 
 1. **Faculty references are unified on `faculty_id`.** Every entity (`professors`, `programs`, `courses`) points at a faculty through `faculty_id` (int, FK → faculties.id). Denormalization by the faculty's string name has been removed — in DynamoDB one stable faculty key is enough.
-2. **The programme identifier.** A programme has two fields: `program_id` (a slug, `cs-software-engineering`) and `id` (int); `groups.program_id` points at the numeric `id`. For DynamoDB we take the slug (`program_id`) as the partition key — it is stable and human-readable; the numeric `id` stays internal.
+2. **The programme identifier.** A programme has two fields: `program_id` (a slug, `cs-software-engineering`) and `id` (int); `groups.program_id` points at the numeric `id`. For DynamoDB we take the **`id`** as the partition key: a primary key cannot be renamed, and a slug is a human-editable label. The slug is not stored at all — the API dropped it, and `groups.program_id` already points at the numeric id.
 3. **There is no student/user entity.** `appointment_slots.booked_by` and `reported_issues` (votes) imply a user the schema doesn't have. Whether to introduce one is a decision to make.
 4. **Free-text time and hours fields.** `office_hours`, `opening_hours`, `floor` (ranges) are unstructured text; querying by time would require normalizing them.
 5. **`schedule` is a join table with 4 FKs.** The prime candidate for denormalization: in DynamoDB the typical queries (a group's schedule, a professor's schedule, a room's occupancy) turn into several access patterns / GSIs.
