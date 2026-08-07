@@ -1,3 +1,5 @@
+from langchain_core.messages import BaseMessage
+from langgraph.graph.state import CompiledStateGraph
 from types_aiobotocore_dynamodb import DynamoDBClient
 
 from app.api.v1.faculty.repository import FacultyRepository
@@ -27,6 +29,14 @@ async def create_test_program(faculty_id: str, db_client: DynamoDBClient, **over
     repo = ProgramsRepository(db_client, get_settings())
     _, program = await repo.create_program(ProgramCreationFactory.build(faculty_id=faculty_id, **overrides))
     return program
+
+
+async def seed_agent_state(agent: CompiledStateGraph, user_id: str, messages: list[BaseMessage]) -> None:
+    """Write messages straight into the agent's checkpointer under ``thread_id == user_id``, so a
+    test can start from an existing conversation without driving the model through it. Goes through
+    the graph rather than the raw saver because the ``add_messages`` reducer and the checkpoint
+    bookkeeping are what make the state loadable again."""
+    await agent.aupdate_state({'configurable': {'thread_id': user_id}}, {'messages': messages}, as_node='model')
 
 
 async def create_test_group_row(program_id: str, db_client: DynamoDBClient) -> GroupRow:
