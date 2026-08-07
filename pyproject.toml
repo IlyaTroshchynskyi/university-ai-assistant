@@ -22,6 +22,8 @@ dependencies = [
     # Runtime, not just typing: base_service.py and api/v1/rooms/repository.py import DynamoDBClient
     # unguarded, and FastAPI resolves `Annotated[DynamoDBClient, Depends(...)]` at request time.
     "types-aiobotocore[dynamodb]>=3.7.0",
+    "langchain>=1.3.14",
+    "langchain-openai>=1.4.1",
 ]
 
 [project.scripts]

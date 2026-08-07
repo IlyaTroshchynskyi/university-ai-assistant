@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
@@ -7,12 +8,20 @@ from pydantic import BaseModel
 
 from app.ai_assistant.main_flow_service import get_main_flow_service, MainFlowService
 from app.ai_assistant.university_knowladge.knowledge_service import get_knowledge_service, KnowledgeService
+from app.ai_assistant_langchain.router import router as assistant_router
 from app.api.v1.faculty.router import router as faculty_router
 from app.api.v1.programs.router import router as program_router
 from app.api.v1.rooms.router import router as rooms_router
 from app.core.dynamodb.schemas import Slot, SlotStatus
 from app.core.dynamodb.slots_repository import open_slots_repository
 from app.core.execption_handler import include_exception_handlers
+
+LOG_FORMAT = '%(asctime)s:%(levelname)s:%(module)s:[%(filename)s:%(lineno)d]:%(funcName)s:%(message)s'
+
+logging.basicConfig(
+    level=logging.INFO,
+    format=LOG_FORMAT,
+)
 
 
 def create_app() -> FastAPI:
@@ -21,6 +30,7 @@ def create_app() -> FastAPI:
     app.include_router(rooms_router)
     app.include_router(faculty_router)
     app.include_router(program_router)
+    app.include_router(assistant_router)
 
     return app
 

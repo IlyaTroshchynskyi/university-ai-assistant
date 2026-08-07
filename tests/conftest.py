@@ -1,7 +1,7 @@
 from asyncio import AbstractEventLoop, DefaultEventLoopPolicy
 from contextlib import AsyncExitStack
 import os
-from typing import AsyncGenerator, Callable, TypeAlias
+from typing import AsyncGenerator, Callable, Generator, TypeAlias
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -112,3 +112,24 @@ class TestBaseDBClass:
 
 
 class TestBaseClientDBClass(TestBaseClientClass, TestBaseDBClass): ...
+
+
+class TestBaseAgentClass:
+    @pytest.fixture(autouse=True)
+    def _a_provide_agent(self) -> Generator[None, None, None]:
+        """The stub agent and its model are session-wide singletons (the app is wired to them once),
+        so the recorded calls are cleared around every test. Threads stay apart because each test
+        talks to the endpoint under its own ``user_id``."""
+        from tests.agent_stubs import get_stub_model, get_test_agent
+
+        self.agent = get_test_agent()
+        self.checkpointer = self.agent.checkpointer
+        self.stub_model = get_stub_model()
+        self.stub_model.reset()
+
+        yield
+
+        self.stub_model.reset()
+
+
+class TestBaseClientAgentClass(TestBaseClientClass, TestBaseAgentClass): ...
