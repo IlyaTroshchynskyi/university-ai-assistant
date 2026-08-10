@@ -37,6 +37,12 @@ _ID_NAMESPACE = uuid.UUID('a1b2c3d4-0000-0000-0000-000000000000')
 # per-request limits (batch size + token budget) and bounds how many vectors are held at once.
 _EMBED_BATCH_SIZE = 100
 
+NO_RESULTS = 'No relevant information was found in the university knowledge base.'
+
+
+def join_passages(hits: list[ScoredPoint]) -> str:
+    return '\n\n'.join(hit.payload['text'] for hit in hits if hit.payload) or NO_RESULTS
+
 
 class KnowledgeService:
     def __init__(
@@ -98,13 +104,16 @@ class KnowledgeService:
     async def search(
         self,
         query: str,
-        limit: int = 4,
+        limit: int = 3,
         source: str | None = None,
         doc_type: str | None = 'general',
-    ) -> str:
-        """Joined text of the chunks most relevant to ``query`` (empty if none clear the dense
-        floor). The query is embedded both densely and sparsely and fused with RRF; an optional
-        ``source`` / ``doc_type`` filter scopes the search to matching documents."""
+    ) -> list[ScoredPoint]:
+        """The chunks most relevant to ``query`` (empty if none clear the dense floor). The query
+        is embedded both densely and sparsely and fused with RRF; an optional ``source`` /
+        ``doc_type`` filter scopes the search to matching documents.
+
+        Three rather than four: across the evaluation goldens the fourth chunk never adds coverage
+        and costs a quarter of the returned text, which is dead weight in the answer prompt."""
         dense_vector = (await self._embedder.embed([query]))[0]
         sparse_vector = await self._sparse_embedder.embed_query(query)
 
@@ -115,19 +124,24 @@ class KnowledgeService:
             query_filter=self._build_filter(source, doc_type),
             score_threshold=self._min_score,
         )
-        return '\n\n'.join(h.payload['text'] for h in hits if h.payload)
+        return hits
 
     async def search_mmr(
         self,
         query: str,
-        limit: int = 4,
+        limit: int = 3,
         source: str | None = None,
         doc_type: str | None = 'general',
-    ) -> str:
+    ) -> list[ScoredPoint]:
         """Like :meth:`search`, but MMR-reranked. Hybrid search first fetches a larger candidate
         pool (``limit * SEARCH_MMR_FETCH_MULT``); MMR then reranks it down to ``limit`` so the
         results stay relevant *and* diverse instead of returning several paraphrases of the same
-        passage."""
+        passage.
+
+        Chunks are stored with an overlap, so plain relevance ranking readily fills the result set
+        with adjacent chunks that repeat each other's text; MMR spends those slots on genuinely new
+        passages instead. Returns the hits themselves — same shape as :meth:`search`, so callers
+        can swap one for the other."""
         dense_vector = (await self._embedder.embed([query]))[0]
         sparse_vector = await self._sparse_embedder.embed_query(query)
 
@@ -139,8 +153,7 @@ class KnowledgeService:
             score_threshold=self._min_score,
             with_vectors=True,
         )
-        hits = self._rerank_mmr(dense_vector, candidates, limit)
-        return '\n\n'.join(h.payload['text'] for h in hits if h.payload)
+        return self._rerank_mmr(dense_vector, candidates, limit)
 
     def _rerank_mmr(self, query_vector: list[float], candidates: list[ScoredPoint], limit: int) -> list[ScoredPoint]:
         """Reorder ``candidates`` by MMR and keep the top ``limit``. Candidates missing their dense

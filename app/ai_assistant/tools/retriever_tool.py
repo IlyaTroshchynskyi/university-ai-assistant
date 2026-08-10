@@ -3,7 +3,7 @@ import logging
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from app.ai_assistant.university_knowladge.knowledge_service import get_knowledge_service
+from app.ai_assistant.university_knowladge.knowledge_service import get_knowledge_service, join_passages
 
 logger = logging.getLogger(__name__)
 
@@ -34,5 +34,4 @@ class RetrieverTool(BaseTool):
         directly here. The collection is populated by ingesting PDFs via ``POST /documents``.
         """
         logger.info('Retriever query: %r', query)
-        passages = await get_knowledge_service().search(query)
-        return passages or 'No relevant information was found in the university knowledge base.'
+        return join_passages(await get_knowledge_service().search(query))

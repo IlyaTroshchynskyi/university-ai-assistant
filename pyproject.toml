@@ -80,4 +80,5 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "polyfactory>=3.3.0",  # tests/factories only — never imported by app/
+    "deepeval>=3.9.6",  # tests/integration only — never imported by app/
 ]

@@ -8,8 +8,8 @@ from langchain_core.language_models import BaseChatModel
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 
+from app.ai_assistant_langchain.agent_schemas import CustomContext
 from app.ai_assistant_langchain.prompts import MAIN_CHAT_PROMPT
-from app.ai_assistant_langchain.schemas import CustomContext
 from app.ai_assistant_langchain.tools import retriever
 from app.settings import get_settings
 

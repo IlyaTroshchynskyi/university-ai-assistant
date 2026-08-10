@@ -1,8 +1,3 @@
-"""The agent used by the API tests: the real graph produced by ``create_assistant_agent`` — same
-tools, middleware and an ``InMemorySaver`` — with ``ChatOpenAI`` swapped for a scripted model, so
-no test reaches OpenAI. Wired globally in ``override_app_test_dependencies``.
-"""
-
 from functools import lru_cache
 from typing import Any
 from unittest.mock import patch
@@ -18,7 +13,7 @@ from pydantic import Field
 import app.ai_assistant_langchain.agent as agent_module
 from app.ai_assistant_langchain.agent import create_assistant_agent
 
-PATH_TO_MODEL_FACTORY = 'app.ai_assistant_langchain.agent.get_model_factory'
+PATH_TO_MODEL_FACTORY = 'app.ai_assistant_langchain.agent._get_model_factory'
 DEFAULT_STUB_REPLY = 'Stubbed assistant reply.'
 
 
