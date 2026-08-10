@@ -1,7 +1,7 @@
 from asyncio import AbstractEventLoop, DefaultEventLoopPolicy
 from contextlib import AsyncExitStack
 import os
-from typing import AsyncGenerator, Callable, Generator, TypeAlias
+from typing import AsyncGenerator, Callable, TypeAlias
 
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -19,8 +19,36 @@ TEST_HOST = 'http://test'
 LoopFactory: TypeAlias = Callable[[], AbstractEventLoop]
 
 
+RUN_EVAL_OPTION = '--run-eval'
+EVALUATION_MARKER = 'evaluation'
+TABLES_MARKER = 'tables'
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption(
+        RUN_EVAL_OPTION,
+        action='store_true',
+        default=False,
+        help='run the DeepEval suites in tests/integration (real OpenAI and Qdrant calls, costs money)',
+    )
+
+
 def pytest_configure(config: pytest.Config) -> None:
-    os.environ.setdefault('OPENAI_API_KEY', 'test-key')
+    config.addinivalue_line(
+        'markers',
+        f'{EVALUATION_MARKER}: DeepEval suite — skipped unless {RUN_EVAL_OPTION} is passed',
+    )
+    config.addinivalue_line(
+        'markers',
+        f'{TABLES_MARKER}: golden whose answer lives inside a table — the cases a chunking change '
+        f'splitting tables breaks first (`make eval-tables`)',
+    )
+
+    # The stub key would shadow the real one: an environment variable outranks .env in
+    # pydantic-settings, and the evaluations need a key that actually works.
+    if not config.getoption(RUN_EVAL_OPTION):
+        os.environ.setdefault('OPENAI_API_KEY', 'test-key')
+
     os.environ.setdefault('DYNAMODB_ENDPOINT_URL', 'http://localhost:8001')
     os.environ.setdefault('AWS_REGION', 'us-east-1')
     os.environ.setdefault('AWS_ACCESS_KEY_ID', 'dummy')
@@ -33,6 +61,18 @@ def pytest_configure(config: pytest.Config) -> None:
     from app.settings import get_settings
 
     get_settings.cache_clear()
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Keep a plain ``pytest`` free and offline: the evaluations are collected, then skipped with
+    a reason, unless the flag asks for them."""
+    if config.getoption(RUN_EVAL_OPTION):
+        return
+
+    skip_eval = pytest.mark.skip(reason=f'needs {RUN_EVAL_OPTION} (real OpenAI and Qdrant calls)')
+    for item in items:
+        if EVALUATION_MARKER in item.keywords:
+            item.add_marker(skip_eval)
 
 
 @pytest_asyncio.fixture(scope='session', loop_scope='session')
@@ -112,24 +152,3 @@ class TestBaseDBClass:
 
 
 class TestBaseClientDBClass(TestBaseClientClass, TestBaseDBClass): ...
-
-
-class TestBaseAgentClass:
-    @pytest.fixture(autouse=True)
-    def _a_provide_agent(self) -> Generator[None, None, None]:
-        """The stub agent and its model are session-wide singletons (the app is wired to them once),
-        so the recorded calls are cleared around every test. Threads stay apart because each test
-        talks to the endpoint under its own ``user_id``."""
-        from tests.agent_stubs import get_stub_model, get_test_agent
-
-        self.agent = get_test_agent()
-        self.checkpointer = self.agent.checkpointer
-        self.stub_model = get_stub_model()
-        self.stub_model.reset()
-
-        yield
-
-        self.stub_model.reset()
-
-
-class TestBaseClientAgentClass(TestBaseClientClass, TestBaseAgentClass): ...

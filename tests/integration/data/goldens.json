@@ -1,0 +1,239 @@
+[
+  {
+    "id": 1,
+    "question": "How much is the annual tuition for the Data Science program?",
+    "expected_answer": "$26,000 per year.",
+    "context": [
+      "Data Science (BSc, 4 years). A blend of computer science, statistics, and machine learning. You'll study programming, data structures, probability, statistical modeling, and large-scale data processing, with a strong practical lab component. Careers: data scientist, ML engineer, data analyst. Annual tuition: $26,000."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Programs"
+  },
+  {
+    "id": 2,
+    "question": "How long is the Architecture program and what does it cost per year?",
+    "expected_answer": "The Architecture program is 5 years long. Annual tuition is $22,000 per year.",
+    "context": [
+      "Architecture (BSc, 5 years). A long-form, studio-driven program covering design, structures, history, and professional practice. Careers: architect (after professional registration), architectural designer. Annual tuition: $22,000."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Programs"
+  },
+  {
+    "id": 3,
+    "question": "If I pay my tuition monthly, is there any extra charge, and do the other payment plans have one?",
+    "expected_answer": "Yes. Plan C (ten monthly installments) adds a 2% administrative surcharge to tuition. Plan A (annual) and Plan B (semester) have no surcharge.",
+    "context": [
+      "Plan A - Annual. Pay the full year's tuition by the deposit deadline (June 15, 2027 for the 2027-2028 cycle). No surcharge.",
+      "Plan B - Semester. Two equal installments, one for the Fall term and one for the Spring term. No surcharge.",
+      "Plan C - Monthly. Ten monthly installments across the academic year. A 2% administrative surcharge is added to tuition for the convenience of monthly billing."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Tuition & Fees"
+  },
+  {
+    "id": 4,
+    "question": "Does a scholarship discount also reduce the student services fee, and how much is that fee?",
+    "expected_answer": "No. Scholarship discounts apply to tuition only and never to fees, so the $450 student services fee is paid in full.",
+    "context": [
+      "Discounts from scholarships apply to tuition only, never to fees.",
+      "Student services fee $450 / year, paid by all enrolled students."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Tuition & Fees"
+  },
+  {
+    "id": 5,
+    "question": "Who qualifies for the Northwood Merit Scholarship and what does it give?",
+    "expected_answer": "Any admitted student with a GPA of 3.7 or higher. It is a 50% tuition discount, awarded automatically from the admission GPA with no separate form.",
+    "context": [
+      "Northwood Merit Scholarship. Who qualifies: any admitted student with a GPA of 3.7 or higher. Award: 50% tuition discount. How to apply: automatic - all applicants are considered based on their admission GPA. No separate form."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Scholarships"
+  },
+  {
+    "id": 6,
+    "question": "What do I need to qualify for the Dean's Excellence Award, what does it give, and how do I apply?",
+    "expected_answer": "A GPA of 3.9 or higher AND an entrance exam score of 90 or more out of 100. The award is a flat $8,000 per year, awarded automatically from your admission GPA and entrance exam results.",
+    "context": [
+      "Dean's Excellence Award. Who qualifies: students with a GPA of 3.9 or higher AND an entrance exam score of 90 or more (out of 100). Award: $8,000 per year (a flat amount, not a percentage). How to apply: automatic, based on admission GPA and entrance exam results."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Scholarships"
+  },
+  {
+    "id": 7,
+    "question": "Can I hold two scholarships at the same time?",
+    "expected_answer": "No. You may hold at most one scholarship at a time. If you qualify for more than one, NIT awards the one that gives you the largest net benefit for your program.",
+    "context": [
+      "One scholarship per student. You may hold at most one scholarship at a time. If you qualify for more than one, NIT awards the one that gives you the largest net benefit for your program."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Scholarships"
+  },
+  {
+    "id": 8,
+    "question": "I've been admitted to Software Engineering with a 3.8 GPA. What will I pay in tuition?",
+    "expected_answer": "$12,250 per year. Software Engineering tuition is $24,500, and a 3.8 GPA qualifies for the Northwood Merit Scholarship, which is a 50% tuition discount.",
+    "context": [
+      "Software Engineering (BSc, 4 years). Learn to design, build, and ship software systems. Annual tuition: $24,500.",
+      "Northwood Merit Scholarship. Who qualifies: any admitted student with a GPA of 3.7 or higher. Award: 50% tuition discount.",
+      "A Software Engineering student (tuition $24,500, see the Programs section) with the Merit Scholarship (50%) pays $12,250 in tuition."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Programs + Scholarships"
+  },
+  {
+    "id": 9,
+    "question": "What is the total first-year cost for a Mechanical Engineering student before any scholarship, and what else do I pay up front?",
+    "expected_answer": "$23,750 - $23,000 tuition plus the $450 student services fee and the $300 lab fee. There is also a one-time $60 application fee, and the $1,000 deposit is credited toward tuition.",
+    "context": [
+      "Mechanical Engineering (BSc, 4 years). Statics, mechanics, thermodynamics, materials, and design. Annual tuition: $23,000.",
+      "A Mechanical Engineering student (tuition $23,000) in the Engineering faculty pays, in year one: Tuition $23,000; Student services fee $450; Lab fee (Engineering) $300; Total before any scholarship: $23,750 (plus the one-time $60 application fee already paid, with the $1,000 deposit credited against tuition)."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Programs + Tuition & Fees"
+  },
+  {
+    "id": 10,
+    "question": "I'm a female applicant to Data Science with a 3.6 GPA. Which scholarship do I get, what will my tuition be, and would a higher GPA change that?",
+    "expected_answer": "The Women in STEM Scholarship, a flat $5,000 per year, so tuition is $21,000 ($26,000 minus $5,000). A GPA of 3.7 or higher would instead qualify for the Merit Scholarship, which would be worth more.",
+    "context": [
+      "Women in STEM Scholarship. Who qualifies: female students enrolled in a Computer Science, Engineering, or Natural Sciences program, with a GPA of 3.5 or higher. Award: $5,000 per year (a flat amount).",
+      "A Data Science student (tuition $26,000) who is female and has a 3.6 GPA qualifies for the Women in STEM Scholarship ($5,000/year), paying $21,000 in tuition. If her GPA were 3.7+, the Merit Scholarship (50%, so $13,000) would give a larger benefit, so NIT would award that instead."
+    ],
+    "layers": ["retriever"],
+    "section": "Programs + Scholarships"
+  },
+  {
+    "id": 11,
+    "question": "What are the minimum GPA and entrance exam score needed to apply?",
+    "expected_answer": "A high-school GPA of at least 3.0 on a 4.0 scale and an entrance exam score of at least 60 out of 100. Competitive programs may set higher cutoffs.",
+    "context": [
+      "Entrance exam. All applicants sit the NIT entrance exam, scored from 0 to 100. A minimum score of 60 is required to be considered. Competitive programs may apply higher cutoffs.",
+      "GPA. We use high-school GPA on a 4.0 scale. The minimum to apply is 3.0."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Admissions"
+  },
+  {
+    "id": 12,
+    "question": "My previous education was in Spanish. Do I need an English test?",
+    "expected_answer": "Yes. Applicants whose prior education was not in English must show IELTS 6.5 or higher, or TOEFL iBT 90 or higher.",
+    "context": [
+      "English (international applicants). Applicants whose prior education was not in English must show IELTS 6.5 or higher or TOEFL iBT 90 or higher."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Admissions"
+  },
+  {
+    "id": 13,
+    "question": "When does the application window for the 2027-2028 year open and close?",
+    "expected_answer": "March 15, 2027. The application window opens October 1, 2026.",
+    "context": [
+      "Submit the online application and pay the non-refundable $60 application fee. The application window for the 2027-2028 year opens October 1, 2026 and closes March 15, 2027.",
+      "Admission cycle: Application opens October 1, 2026. Application deadline (closes) March 15, 2027."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Key Dates"
+  },
+  {
+    "id": 14,
+    "question": "How much is the tuition deposit, when is it due, and what happens to it?",
+    "expected_answer": "By June 15, 2027. The deposit is $1,000 and is credited toward your first-year tuition.",
+    "context": [
+      "Accept your offer by paying the $1,000 tuition deposit (credited toward your first-year tuition) by June 15, 2027, and choose a payment plan.",
+      "Tuition deposit deadline (accept your offer) June 15, 2027."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Key Dates"
+  },
+  {
+    "id": 15,
+    "question": "How much does a studio at Riverside Residence cost per year?",
+    "expected_answer": "$8,200 per year.",
+    "context": [
+      "Room options and costs. Option / Annual cost (USD): Standard double room (shared) 4,800; Single room 6,500; Studio (private, with kitchenette) 8,200."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Housing"
+  },
+  {
+    "id": 16,
+    "question": "When can I apply for on-campus housing?",
+    "expected_answer": "Only after you have been admitted, accepted your offer and paid the $1,000 tuition deposit. Then you apply through the online housing portal and pay a $500 refundable housing deposit.",
+    "context": [
+      "Get admitted and accept your offer first. Housing applications open only after you've paid your $1,000 tuition deposit.",
+      "Apply through the online housing portal and pay the $500 housing deposit. The deposit is refundable and is credited toward your first housing payment."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Housing"
+  },
+  {
+    "id": 17,
+    "question": "What are the Main Library opening hours?",
+    "expected_answer": "Monday to Friday 08:00-22:00, and Saturday to Sunday 10:00-18:00.",
+    "context": [
+      "Main Library. Spread across floors 1-3 of the Library building, with study spaces, group rooms, and an extensive digital collection. Hours: Mon-Fri 08:00-22:00; Sat-Sun 10:00-18:00."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Campus Life"
+  },
+  {
+    "id": 18,
+    "question": "Is the cafeteria open on Sunday?",
+    "expected_answer": "No, the cafeteria is closed on Sunday. It is open Monday to Friday 07:30-20:00 and Saturday 09:00-16:00.",
+    "context": [
+      "Cafeteria. On floor 1 of the Student Center, serving breakfast, lunch, and dinner. Hours: Mon-Fri 07:30-20:00; Sat 09:00-16:00; closed Sunday."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Campus Life"
+  },
+  {
+    "id": 19,
+    "question": "When does the Fall term start and end, and when does the Spring term run?",
+    "expected_answer": "The Fall term runs from September 7, 2027 to December 18, 2027. The Spring term runs from February 1, 2028 to May 26, 2028.",
+    "context": [
+      "Academic year. Event / Date: Fall term starts September 7, 2027; Fall term ends December 18, 2027; Spring term starts February 1, 2028; Spring term ends May 26, 2028."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Key Dates (table)"
+  },
+  {
+    "id": 20,
+    "question": "How much is the lab fee and which students pay it?",
+    "expected_answer": "$300 per year, paid by students in the Computer Science, Engineering and Natural Sciences faculties.",
+    "context": [
+      "Fees. Fee / Amount / Who pays: Lab fee, $300 / year, students in Computer Science, Engineering, and Natural Sciences."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Tuition & Fees (table)"
+  },
+  {
+    "id": 21,
+    "question": "For Civil Engineering, what degree is awarded, how many years is it, and what is the annual tuition?",
+    "expected_answer": "A BSc, 4 years, at $22,500 per year.",
+    "context": [
+      "Tuition summary. Program / Faculty / Degree / Years / Annual tuition: Civil Engineering, Engineering, BSc, 4, $22,500."
+    ],
+    "layers": ["retriever", "agent"],
+    "section": "Tuition summary (table)"
+  },
+  {
+    "id": 22,
+    "question": "Does NIT have a medical faculty?",
+    "expected_answer": "No. NIT is organized into six faculties - Computer Science, Economics & Business, Engineering, Law, Arts & Design, and Natural Sciences - and medicine is not among them.",
+    "context": [],
+    "layers": ["agent"],
+    "section": null
+  },
+  {
+    "id": 23,
+    "question": "Hi there!",
+    "expected_answer": "A short, friendly greeting that offers to help with questions about the university. No facts about programs, fees or dates are invented.",
+    "context": [],
+    "layers": ["agent"],
+    "section": null
+  }
+]

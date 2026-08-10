@@ -181,6 +181,36 @@ finishes** — that is the true parallelism (`uv run plot` renders the main flow
 still a placeholder, so the researched facts are stub text; the routing, parallelism and merge
 are fully real and observable.
 
+## Evaluating the RAG pipeline
+
+Two DeepEval suites score the assistant against 23 hand-written goldens: one measures the
+retriever on its own (`KnowledgeService.search`, production defaults), the other measures the
+answer `POST /langchain-assistant` gives.
+
+```bash
+make eval
+```
+
+**It calls the real OpenAI API and costs money.** A plain `pytest` never does — the suites are
+collected and skipped unless `--run-eval` is passed, which is what `make eval` does. The flag also
+turns off the stub `OPENAI_API_KEY` that the rest of the tests run on.
+
+Before the first run:
+
+- **Ingest the handbook.** Both suites search the live `university_kb` collection. A session
+  preflight probes it and skips the whole suite with a reason if it is empty or unreachable, so an
+  un-ingested collection does not show up as 43 failing metrics. Populate it via `POST /documents`.
+- **Have Qdrant up** (`QDRANT_URL`, default `http://localhost:6333`).
+- **Optionally set `EVAL_MODEL_API_KEY`** in `.env` to bill the judge separately. Leave it unset
+  and the judge uses `OPENAI_API_KEY`, same as the app.
+
+The judge model and every metric threshold live in `tests/integration/config.py`, each with the
+measurements that set it. A red run is **not** automatically a regression — every metric is an LLM
+judge, and the spread between runs is wider than the gap between a good answer and a mediocre one.
+Read the score table `--log-cli-level=INFO` prints, and the module docstrings of both suites, which
+record which goldens sit near a threshold. Full design and measurement history:
+[`docs/superpowers/specs/2026-08-07-rag-evaluation-design.md`](docs/superpowers/specs/2026-08-07-rag-evaluation-design.md).
+
 ## Understanding the project
 
 - `app/main.py` — FastAPI app (`/ask`, `/slots`, `/health`).

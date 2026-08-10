@@ -14,7 +14,10 @@ class Settings(BaseSettings):
 
     SEARCH_MIN_SCORE: float = 0.3
 
-    SEARCH_MMR_LAMBDA: float = 0.5
+    # Relevance-leaning: at 0.5 the diversity term outbids relevance hard enough to spend a slot
+    # on an unrelated passage (opening hours for a tuition question) and drop one that carries the
+    # answer. Retrieval feeds an answer, so a near-duplicate costs less than a miss.
+    SEARCH_MMR_LAMBDA: float = 0.8
     SEARCH_MMR_FETCH_MULT: int = 4
 
     VISION_MODEL: str = 'gpt-4o-mini'
@@ -30,6 +33,9 @@ class Settings(BaseSettings):
     AWS_REGION: str = 'us-east-1'
     AWS_ACCESS_KEY_ID: str = 'dummy'
     AWS_SECRET_ACCESS_KEY: str = 'dummy'
+
+    # The judge model and the metric thresholds are not here: they configure the DeepEval suites,
+    # which the running app never imports. See ``tests/integration/config.py``.
 
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 

@@ -24,9 +24,14 @@ output/
 
 # IDE
 .idea/
+.claude/settings.local.json
+
+# Local scratch
 app_state.sqlite3*
 *pdf
 generate_test_pdf_prompt.md
-*json
 parse_pdf_to_chunks.py
 
+# DeepEval local state: anonymous install id, judge cache, last run summary
+.deepeval/
+db/seed
