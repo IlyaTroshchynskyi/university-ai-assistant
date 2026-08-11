@@ -5,32 +5,17 @@ from uuid import uuid4
 from fastapi import FastAPI
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 import pytest
-from qdrant_client.models import ScoredPoint
 
 from app.ai_assistant_langchain.agent import create_assistant_agent
 from app.ai_assistant_langchain.schemas import ChatSchemaOut
 from tests.agent_stubs import get_stub_model, get_test_agent
-from tests.conftest import TestBaseClientClass
+from tests.api.factories import PATH_TO_KNOWLEDGE_SERVICE, StubKnowledgeService, tool_call_reply
+from tests.conftest import TestBaseAgentClass, TestBaseClientClass
 from tests.dependencies import override_dependency, remove_dependency_override
 from tests.factories.factory_creators import seed_agent_state
 
 PATH_TO_RUN_AGENT = 'app.ai_assistant_langchain.agent_service.AgentService.run_agent'
-PATH_TO_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.tools.get_knowledge_service'
 ENDPOINT = '/langchain-assistant'
-
-
-class StubKnowledgeService:
-    """Replaces the Qdrant-backed service so the retriever tool never leaves the process."""
-
-    def __init__(self, passages: str) -> None:
-        self.passages = passages
-        self.queries: list[str] = []
-
-    async def search(self, query: str) -> list[ScoredPoint]:
-        """Returns hits, not text: the tool reads ``payload['text']`` off each one, so a stub that
-        answers with a bare string is iterated character by character."""
-        self.queries.append(query)
-        return [ScoredPoint(id=1, version=0, score=1.0, payload={'text': self.passages})]
 
 
 @pytest.fixture
@@ -40,11 +25,7 @@ def knowledge() -> Generator[StubKnowledgeService, None, None]:
         yield stub
 
 
-def tool_call_reply(query: str, call_id: str = 'call_1') -> AIMessage:
-    return AIMessage(content='', tool_calls=[{'id': call_id, 'name': 'retriever', 'args': {'query': query}}])
-
-
-class TestBaseCheckpointerClass(TestBaseClientClass):
+class TestBaseCheckpointerClass(TestBaseAgentClass):
     """Base for the tests that exercise the **real** graph: they never mock ``run_agent``, so the
     endpoint has to reach a graph whose model is scripted rather than OpenAI's.
 
@@ -57,6 +38,11 @@ class TestBaseCheckpointerClass(TestBaseClientClass):
 
     The stub agent and its model are cached singletons, so the recorded calls are cleared around
     every test. Threads stay apart because each test posts under its own ``user_id``.
+
+    The graph is the production one, so its checkpointer is the production one too: these tests
+    read and write real rows in ``agent_checkpoints_test``. ``TestBaseAgentClass`` is what creates
+    that table and closes the client afterwards. Running against the real saver is deliberate — it
+    makes the memory assertions below an end-to-end test of it.
     """
 
     @pytest.fixture(autouse=True)
@@ -106,7 +92,7 @@ class TestChatWithUserCheckpointer(TestBaseClientClass):
 
 class TestChatMemoryCheckpointer(TestBaseCheckpointerClass):
     """Tests for the conversation memory — ``run_agent`` is not mocked at all, so these read and
-    write real state in the shared ``InMemorySaver``."""
+    write real rows in ``agent_checkpoints_test`` through the production checkpointer."""
 
     async def test_first_turn_sends_system_prompt_and_query_only(self) -> None:
         """A brand-new thread carries nothing but the system prompt and the incoming question."""
@@ -121,8 +107,8 @@ class TestChatMemoryCheckpointer(TestBaseCheckpointerClass):
 
     async def test_seeded_history_is_replayed_to_the_model(self) -> None:
         """
-        Seeds real messages directly into the shared InMemorySaver, then asserts the next request
-        replays them — the endpoint itself only ever passes the new message.
+        Seeds real messages straight into the checkpointer, then asserts the next request replays
+        them — the endpoint itself only ever passes the new message.
         """
         user_id = str(uuid4())
         await seed_agent_state(

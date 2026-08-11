@@ -24,6 +24,9 @@ Item = TypeVar('Item', bound=BaseModel)
 _SERIALIZER = TypeSerializer()
 _DESERIALIZER = TypeDeserializer()
 
+# How many keys one ``BatchGetItem`` accepts; ``batch_get`` chunks anything longer.
+BATCH_GET_LIMIT = 100
+
 # Which member of a ``TransactWriteItems`` entry each action becomes. Keyed by type rather than
 # branched on, so a fourth action (``Update``) is one line here rather than another elif.
 _TRANSACT_MEMBER: dict[type, str] = {
@@ -67,6 +70,29 @@ class DynamoDBService:
         )
         item = response.get('Item')
         return self._deserialize(item) if item is not None else None
+
+    async def batch_get(self, keys: list[dict[str, Any]], consistent_read: bool = False) -> list[dict[str, Any]]:
+        """The items at ``keys``, fetched in one round trip per 100 keys.
+
+        Unlike ``get_item`` this says nothing about *which* key each item came from and returns no
+        placeholder for a key that matched nothing — a caller that needs the correspondence reads
+        it back off the items. Order is not preserved either: DynamoDB is free to answer in any
+        order, and to answer partially, which is what the ``UnprocessedKeys`` loop is for."""
+        items: list[dict[str, Any]] = []
+        for start in range(0, len(keys), BATCH_GET_LIMIT):
+            chunk = keys[start : start + BATCH_GET_LIMIT]
+            request: dict[str, Any] = {
+                self._table_name: {
+                    'Keys': [self._serialize(key) for key in chunk],
+                    'ConsistentRead': consistent_read,
+                }
+            }
+            while request:
+                response = await self._client.batch_get_item(RequestItems=request)
+                found = response.get('Responses', {}).get(self._table_name, [])
+                items.extend(self._deserialize(raw) for raw in found)
+                request = response.get('UnprocessedKeys') or {}
+        return items
 
     async def update_item(
         self,
@@ -142,6 +168,8 @@ class DynamoDBService:
         filter_expression: ConditionBase | None = None,
         index_name: Index | None = None,
         limit: int | None = None,
+        ascending: bool = True,
+        consistent_read: bool = False,
     ) -> list[dict[str, Any]]:
         """Items matching a ``key_condition`` (``Key('pk').eq(...)``), transparently paginating so
         the full result set comes back. ``filter_expression`` post-filters, ``limit`` caps the total
@@ -149,7 +177,17 @@ class DynamoDBService:
 
         ``index_name`` picks what is queried: an ``Index`` member targets that GSI, and ``None`` —
         the default — queries the base table, which is what a key condition on ``pk``/``sk`` needs
-        (e.g. ``SlotsRepository.list_open_slots_on_date``)."""
+        (e.g. ``SlotsRepository.list_open_slots_on_date``).
+
+        ``ascending=False`` walks the sort key backwards, so ``limit=1`` returns the *last* item of
+        the partition rather than the first — how the checkpointer finds a thread's newest
+        checkpoint without reading the ones before it.
+
+        ``consistent_read`` reads the latest committed data rather than whatever a replica has, at
+        twice the RCU. **DynamoDB rejects it on a GSI**, so it cannot be combined with
+        ``index_name`` — a global secondary index is only ever eventually consistent."""
+        if consistent_read and index_name is not None:
+            raise ValueError(f'consistent_read is not available on a GSI ({index_name}); query the base table')
         # One builder for both expressions so their placeholders (#n0/:v0, #n1/:v1) never collide.
         builder = ConditionExpressionBuilder()
         names: dict[str, str] = {}
@@ -158,7 +196,12 @@ class DynamoDBService:
         key: BuiltConditionExpression = builder.build_expression(key_condition, is_key_condition=True)
         names.update(key.attribute_name_placeholders)
         values.update(key.attribute_value_placeholders)
-        kwargs: dict[str, Any] = {'TableName': self._table_name, 'KeyConditionExpression': key.condition_expression}
+        kwargs: dict[str, Any] = {
+            'TableName': self._table_name,
+            'KeyConditionExpression': key.condition_expression,
+            'ScanIndexForward': ascending,
+            'ConsistentRead': consistent_read,
+        }
 
         if filter_expression is not None:
             flt: BuiltConditionExpression = builder.build_expression(filter_expression, is_key_condition=False)
@@ -180,11 +223,16 @@ class DynamoDBService:
         return await self._paginate(self._client.query, kwargs, limit)
 
     async def scan(
-        self, filter_expression: ConditionBase | None = None, limit: int | None = None
+        self,
+        filter_expression: ConditionBase | None = None,
+        limit: int | None = None,
+        consistent_read: bool = False,
     ) -> list[dict[str, Any]]:
         """Every item in the table (optionally ``filter_expression``-filtered), paginating to
-        completion. A full scan is expensive — prefer ``query`` on a key/index where possible."""
-        kwargs: dict[str, Any] = {'TableName': self._table_name}
+        completion. A full scan is expensive — prefer ``query`` on a key/index where possible.
+
+        ``consistent_read`` as in ``query``: latest committed data, twice the RCU."""
+        kwargs: dict[str, Any] = {'TableName': self._table_name, 'ConsistentRead': consistent_read}
         if filter_expression is not None:
             expr, names, values = self._build_condition(filter_expression)
             kwargs['FilterExpression'] = expr

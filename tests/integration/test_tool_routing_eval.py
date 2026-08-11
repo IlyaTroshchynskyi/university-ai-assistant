@@ -13,7 +13,7 @@ from qdrant_client.models import ScoredPoint
 
 from app.ai_assistant_langchain.agent import create_assistant_agent
 from app.core.dynamodb.schemas import Place, Professor
-from tests.conftest import TestBaseClientClass
+from tests.conftest import TestBaseAgentClass
 from tests.integration.conftest import assert_metrics, routing_metrics
 
 # Session loop for the same reason as the agent suite: the tests drive the app through the
@@ -97,7 +97,7 @@ async def get_called_tools(user_id: str) -> list[ToolCall]:
     return called_tools
 
 
-class TestToolRouting(TestBaseClientClass):
+class TestToolRouting(TestBaseAgentClass):
     @pytest.fixture(autouse=True)
     def _stub_tool_backends(self) -> Generator[None, None, None]:
         with (

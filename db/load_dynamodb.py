@@ -51,6 +51,7 @@ SECRET_KEY = os.getenv('AWS_SECRET_ACCESS_KEY', 'dummy')
 T_UNIVERSITY = os.getenv('DYNAMODB_TABLE', 'university')
 T_SLOTS = 'appointment_slots'
 T_ISSUES = 'reported_issues'
+T_CHECKPOINTS = os.getenv('DYNAMODB_CHECKPOINTS_TABLE', 'agent_checkpoints')
 
 SEED_DIR = Path(__file__).parent / 'seed'
 
@@ -378,12 +379,51 @@ def recreate_table(
     gsi_numbers: list[int],
     extra_gsis: list[tuple[str, str, str]] | None = None,
 ) -> None:
-    """(Re)creates the table from ``table_definition``: drops the old one, if any, and waits."""
+    """(Re)creates the table from ``table_definition``: drops the old one, if any, and waits.
+
+    Only safe for a table this script refills on the same run. For one holding data it cannot
+    regenerate, use ``create_table_if_absent``.
+    """
     client = _client()
     if name in client.list_tables().get('TableNames', []):
         client.delete_table(TableName=name)
         client.get_waiter('table_not_exists').wait(TableName=name)
 
+    _create_table(client, name, gsi_numbers, extra_gsis)
+
+
+def create_table_if_absent(
+    name: str,
+    gsi_numbers: list[int],
+    extra_gsis: list[tuple[str, str, str]] | None = None,
+) -> None:
+    """Create the table only when it is missing, leaving an existing one and its rows alone.
+
+    The counterpart to ``recreate_table``, and the right one for any table this script does not
+    seed. ``agent_checkpoints`` is the case that forced it: its rows are people's conversations,
+    which nothing can regenerate — re-seeding faculties after the assistant has been in use must
+    not cost them their history.
+
+    Note what this does *not* do: an existing table is accepted as-is, without checking that its
+    key schema still matches ``table_definition``. Changing the layout of a table holding live data
+    is a migration, and a seed loader is the wrong place to attempt one.
+    """
+    client = _client()
+    if name in client.list_tables().get('TableNames', []):
+        logger.info('· table %s already exists — left untouched (it holds data this script cannot rebuild)', name)
+        return
+
+    _create_table(client, name, gsi_numbers, extra_gsis)
+
+
+def _create_table(
+    client: Any,
+    name: str,
+    gsi_numbers: list[int],
+    extra_gsis: list[tuple[str, str, str]] | None = None,
+) -> None:
+    """Create the table and wait for it to come up. Shared by both callers above, which differ only
+    in what they do about a table that is already there."""
     client.create_table(**table_definition(name, gsi_numbers, extra_gsis))
     client.get_waiter('table_exists').wait(TableName=name)
     named = [g[0] for g in (extra_gsis or [])]
@@ -478,6 +518,10 @@ def main() -> None:
     recreate_table(T_UNIVERSITY, gsi_numbers=[1, 2], extra_gsis=[('GSI_NAME', 'gsi_name_pk', 'gsi_name_sk')])
     recreate_table(T_SLOTS, gsi_numbers=[1, 2])
     recreate_table(T_ISSUES, gsi_numbers=[1])
+    # The agent's conversation memory. No GSI: every read is scoped to a thread, and the thread is
+    # the partition. Created rather than recreated — the three tables above are wiped and refilled
+    # below, but this one is never seeded, and its rows are conversations a re-seed must not cost.
+    create_table_if_absent(T_CHECKPOINTS, gsi_numbers=[])
     enable_ttl(T_SLOTS, 'expires_at')
 
     load(T_UNIVERSITY, build_university_items())
@@ -487,7 +531,8 @@ def main() -> None:
     demo()
 
     hints = '\n'.join(
-        f'  aws dynamodb scan --table-name {t} --endpoint-url {ENDPOINT_URL}' for t in (T_UNIVERSITY, T_SLOTS, T_ISSUES)
+        f'  aws dynamodb scan --table-name {t} --endpoint-url {ENDPOINT_URL}'
+        for t in (T_UNIVERSITY, T_SLOTS, T_ISSUES, T_CHECKPOINTS)
     )
     logger.info('\nDone. To inspect the tables in full (AWS CLI):\n%s', hints)
 

@@ -5,10 +5,10 @@ from langchain.agents.middleware import SummarizationMiddleware
 from langchain.chat_models import init_chat_model
 from langchain.chat_models.base import _ConfigurableModel
 from langchain_core.language_models import BaseChatModel
-from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph.state import CompiledStateGraph
 
 from app.ai_assistant_langchain.agent_schemas import CustomContext
+from app.ai_assistant_langchain.checkpointer.saver import get_checkpointer
 from app.ai_assistant_langchain.prompts import MAIN_CHAT_PROMPT
 from app.ai_assistant_langchain.tools import find_person, find_place, retriever
 from app.settings import get_settings
@@ -22,7 +22,7 @@ def create_assistant_agent() -> CompiledStateGraph:
         system_prompt=MAIN_CHAT_PROMPT,
         tools=[retriever, find_person, find_place],
         context_schema=CustomContext,
-        checkpointer=InMemorySaver(),
+        checkpointer=get_checkpointer(),
         middleware=[
             SummarizationMiddleware(
                 model=model,

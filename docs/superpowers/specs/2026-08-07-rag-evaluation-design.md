@@ -390,9 +390,11 @@ sentence, and it is a message *about* the absence of context, not context. Count
 against. The constant lives in `app/ai_assistant_langchain/tools.py` precisely so the suite can
 recognise it without duplicating the wording.
 
-A fresh `user_id` per case is mandatory: `create_assistant_agent` uses an `InMemorySaver`
-keyed by `thread_id`, so a shared id would concatenate all 23 questions into one conversation
-and eventually trigger `SummarizationMiddleware`.
+A fresh `user_id` per case is mandatory: the agent's checkpointer is keyed by `thread_id`, so a
+shared id would concatenate all 23 questions into one conversation and eventually trigger
+`SummarizationMiddleware`. (That checkpointer was an `InMemorySaver` when this was written and is
+now DynamoDB-backed — which makes the rule stricter, not looser: state outlives the process, so a
+reused id would carry answers across runs as well as within one.)
 
 `retrieval_context` is read back from the compiled graph's state rather than by patching
 `get_knowledge_service`. No patching, no second run, and the passages are exactly what the LLM
