@@ -9,6 +9,7 @@ import pytest
 import pytest_asyncio
 from types_aiobotocore_dynamodb import DynamoDBClient
 
+from app.ai_assistant_langchain.checkpointer.saver import get_checkpointer
 from app.core.dynamodb.base_service import DynamoDBService
 from app.core.dynamodb.client import get_aioboto_session, open_dynamo_client
 from app.settings import get_settings
@@ -55,6 +56,7 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ.setdefault('AWS_SECRET_ACCESS_KEY', 'dummy')
     os.environ['DYNAMODB_UNIVERSITY_TABLE'] = 'university_test'
     os.environ['DYNAMODB_SLOTS_TABLE'] = 'appointment_slots_test'
+    os.environ['DYNAMODB_CHECKPOINTS_TABLE'] = 'agent_checkpoints_test'
 
     # Imported here, after the env is in place, so nothing can build (and cache) a Settings that
     # still points at the development tables.
@@ -139,6 +141,20 @@ class TestBaseClientClass:
         not_auth_client: AsyncClient,
     ):
         self.not_auth_client = not_auth_client
+
+
+class TestBaseAgentClass(TestBaseClientClass):
+    """For a test that drives the **real** graph, whatever it stubs underneath.
+    The agent's checkpointer is DynamoDB-backed, so the first ``ainvoke`` writes to
+    ``agent_checkpoints_test`` — a table only the ``tables`` fixture creates.`.
+    """
+
+    @pytest.fixture(autouse=True)
+    async def _a_provide_checkpointer(self, tables: TableSpecs) -> AsyncGenerator[None, None]:
+        # What the app's lifespan does at startup, per test — each test gets its own event loop, and
+        # the client has to be created and closed on the one that uses it.
+        async with get_checkpointer().opened():
+            yield
 
 
 class TestBaseDBClass:

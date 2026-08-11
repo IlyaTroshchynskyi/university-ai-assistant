@@ -7,6 +7,10 @@ run_app:
 	uvicorn app.main:app --reload --port=8000
 
 
+test-checkpointer:
+	pytest tests/dynamodb/test_checkpointer.py -v
+
+
 # Every eval target makes real OpenAI calls and costs money. --log-cli-level is what makes
 # assert_metrics print the score table on passing runs too, so a near-miss is visible before it
 # turns into a failure. The two scoring suites also need Qdrant, and skip themselves with a reason

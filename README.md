@@ -181,6 +181,64 @@ finishes** — that is the true parallelism (`uv run plot` renders the main flow
 still a placeholder, so the researched facts are stub text; the routing, parallelism and merge
 are fully real and observable.
 
+## Conversation memory (the LangChain assistant)
+
+`POST /langchain-assistant` is the LangGraph agent, and its memory is persistent: history is kept
+by a **DynamoDB checkpointer** (`app/ai_assistant_langchain/checkpointer/`) rather than in process
+memory, so it survives a restart and is shared across workers.
+
+The `user_id` you post is the thread key. Reuse it and the agent replays that conversation.
+
+```bash
+docker compose up -d dynamodb
+uv run python db/load_dynamodb.py          # creates agent_checkpoints among the other tables
+make run_app
+```
+
+Re-running the seed loader is safe for conversations: it wipes and refills the three reference
+tables, but `agent_checkpoints` is created only when missing and is otherwise left untouched — its
+rows are people's histories, and nothing can rebuild them.
+
+```bash
+
+# turn 1
+curl -X POST http://127.0.0.1:8000/langchain-assistant -H 'Content-Type: application/json' \
+  -d '{"user_id": "11111111-1111-1111-1111-111111111111", "query": "How long is the CS bachelor?"}'
+
+# turn 2 — "it" resolves from the stored history, and still does after a server restart
+curl -X POST http://127.0.0.1:8000/langchain-assistant -H 'Content-Type: application/json' \
+  -d '{"user_id": "11111111-1111-1111-1111-111111111111", "query": "How much does it cost?"}'
+```
+
+Everything for one thread lives in one partition of `agent_checkpoints`, under three sort-key
+prefixes named after `PostgresSaver`'s three tables:
+
+```
+pk = THREAD#{user_id}
+sk = CHECKPOINTS#{ns}#{checkpoint_id}                       one checkpoint
+sk = CHECKPOINT_BLOBS#{ns}#{channel}#{version}              one channel's value
+sk = CHECKPOINT_WRITES#{ns}#{checkpoint_id}#{task_id}#{idx} one pending write
+```
+
+To look at a thread:
+
+```bash
+aws dynamodb query --table-name agent_checkpoints --endpoint-url http://localhost:8001 \
+  --key-condition-expression 'pk = :t' \
+  --expression-attribute-values '{":t":{"S":"THREAD#11111111-1111-1111-1111-111111111111"}}'
+```
+
+Values are stored compressed, so the payload attributes are not readable in a raw scan — that is
+what keeps a long conversation clear of DynamoDB's 400 KB item limit and off a per-KB write bill.
+
+Rows are never cleaned up in this round; retention is a follow-up. The design, the measurements
+behind the compression, and what was rejected on the way are in
+`docs/superpowers/specs/2026-08-11-dynamodb-checkpointer-design.md`.
+
+```bash
+make test-checkpointer   # the saver's own suite; needs the local DynamoDB up
+```
+
 ## Evaluating the RAG pipeline
 
 Three suites under `tests/integration`. Two of them score the assistant against 23 hand-written

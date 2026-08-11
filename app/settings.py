@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     DYNAMODB_ENDPOINT_URL: str | None = 'http://localhost:8001'
     DYNAMODB_UNIVERSITY_TABLE: str = 'university'
     DYNAMODB_SLOTS_TABLE: str = 'appointment_slots'
+    # The LangGraph checkpointer's table — conversation history, one partition per thread.
+    DYNAMODB_CHECKPOINTS_TABLE: str = 'agent_checkpoints'
 
     AWS_REGION: str = 'us-east-1'
     AWS_ACCESS_KEY_ID: str = 'dummy'

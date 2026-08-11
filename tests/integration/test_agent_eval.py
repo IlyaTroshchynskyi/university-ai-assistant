@@ -40,7 +40,7 @@ import pytest
 
 from app.ai_assistant.university_knowladge.knowledge_service import NO_RESULTS
 from app.ai_assistant_langchain.agent import create_assistant_agent
-from tests.conftest import TestBaseClientClass
+from tests.conftest import TestBaseAgentClass
 from tests.integration.conftest import agent_metrics, assert_metrics
 from tests.integration.goldens import golden_params, GoldenCase, Layer
 
@@ -67,7 +67,7 @@ async def retrieved_chunks(user_id: str) -> list[str]:
     ]
 
 
-class TestAgent(TestBaseClientClass):
+class TestAgent(TestBaseAgentClass):
     @pytest.mark.parametrize('golden', GOLDENS)
     async def test_agent_answer(self, golden: GoldenCase) -> None:
         user_id = str(uuid.uuid4())
