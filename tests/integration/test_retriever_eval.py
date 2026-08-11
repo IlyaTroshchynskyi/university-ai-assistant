@@ -36,7 +36,7 @@ Three things to know before treating a red run as a regression:
    The dates are still retrieved (recall 1.000), they are just ranked second. This one is a
    genuine ranking finding and is left failing on purpose.
 
-Thresholds live in ``app/settings.py``; each carries the measurements behind it.
+Thresholds live in ``tests/integration/config.py``; each carries the measurements behind it.
 """
 
 from deepeval.test_case import LLMTestCase
@@ -50,7 +50,11 @@ from tests.integration.goldens import golden_params, GoldenCase, Layer
 # client behind ``get_embedder`` are cached singletons, so the first case binds them to whatever
 # loop it ran on. On the default function loop every later case then talks to a loop nobody is
 # running any more.
-pytestmark = [pytest.mark.evaluation, pytest.mark.asyncio(loop_scope='session')]
+pytestmark = [
+    pytest.mark.evaluation,
+    pytest.mark.asyncio(loop_scope='session'),
+    pytest.mark.usefixtures('knowledge_base_populated'),
+]
 
 GOLDENS = golden_params(Layer.RETRIEVER)
 

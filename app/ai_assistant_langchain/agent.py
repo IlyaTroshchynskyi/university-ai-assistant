@@ -10,7 +10,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from app.ai_assistant_langchain.agent_schemas import CustomContext
 from app.ai_assistant_langchain.prompts import MAIN_CHAT_PROMPT
-from app.ai_assistant_langchain.tools import retriever
+from app.ai_assistant_langchain.tools import find_person, find_place, retriever
 from app.settings import get_settings
 
 
@@ -20,7 +20,7 @@ def create_assistant_agent() -> CompiledStateGraph:
     return create_agent(
         model=model,
         system_prompt=MAIN_CHAT_PROMPT,
-        tools=[retriever],
+        tools=[retriever, find_person, find_place],
         context_schema=CustomContext,
         checkpointer=InMemorySaver(),
         middleware=[

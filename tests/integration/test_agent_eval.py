@@ -29,7 +29,7 @@ housing applications open on October 1, 2026. That is when *admission* applicati
 housing opens only once the tuition deposit is paid. Faithfulness scores it 0.857 — above the
 bar, so the case passes and the error stands.
 
-Thresholds live in ``app/settings.py``; each carries the measurements behind it.
+Thresholds live in ``tests/integration/config.py``; each carries the measurements behind it.
 """
 
 import uuid
@@ -47,7 +47,11 @@ from tests.integration.goldens import golden_params, GoldenCase, Layer
 # The suite drives the app through the session-scoped ``not_auth_client``, so the test has to run
 # on the session loop too. Left on the default function loop it hangs: the client and the agent's
 # cached clients belong to a loop nobody is running any more.
-pytestmark = [pytest.mark.evaluation, pytest.mark.asyncio(loop_scope='session')]
+pytestmark = [
+    pytest.mark.evaluation,
+    pytest.mark.asyncio(loop_scope='session'),
+    pytest.mark.usefixtures('knowledge_base_populated'),
+]
 
 ENDPOINT = '/langchain-assistant'
 RETRIEVER_TOOL = 'retriever'
