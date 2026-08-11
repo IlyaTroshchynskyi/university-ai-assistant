@@ -10,6 +10,7 @@ from deepeval.metrics import (
     ContextualRelevancyMetric,
     FaithfulnessMetric,
     GEval,
+    ToolCorrectnessMetric,
 )
 from deepeval.models import GPTModel
 from deepeval.test_case import LLMTestCase, LLMTestCaseParams
@@ -27,13 +28,17 @@ logger = logging.getLogger(__name__)
 _PREFLIGHT_QUERY = 'university programs and tuition'
 
 
-@pytest_asyncio.fixture(scope='session', loop_scope='session', autouse=True)
+@pytest_asyncio.fixture(scope='session', loop_scope='session')
 async def knowledge_base_populated() -> None:
-    """Skip both suites, with a reason, when there is nothing to retrieve.
+    """Skip the suite, with a reason, when there is nothing to retrieve.
 
     Without this an empty or unreachable collection hands ``retrieval_context=[]`` to every metric,
-    and 43 goldens fail on low judge scores — which reads as "retrieval regressed" when it actually
+    and 41 goldens fail on low judge scores — which reads as "retrieval regressed" when it actually
     means "nobody ingested the handbook". It also spends real judge calls to say so.
+
+    Requested per module rather than ``autouse``: the two scoring suites retrieve for real and need
+    it, ``test_tool_routing_eval.py`` stubs the tools out and would be gated on infrastructure it
+    never touches.
     """
     try:
         hits = await get_knowledge_service().search(_PREFLIGHT_QUERY)
@@ -169,6 +174,11 @@ def agent_metrics(has_context: bool) -> list[BaseMetric]:
             ),
         ]
     return metrics
+
+
+def routing_metrics() -> list[BaseMetric]:
+    """Which tool the agent reached for, given the question."""
+    return [ToolCorrectnessMetric(threshold=1.0, should_exact_match=True)]
 
 
 async def assert_metrics(test_case: LLMTestCase, metrics: list[BaseMetric]) -> None:

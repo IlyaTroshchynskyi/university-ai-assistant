@@ -49,10 +49,10 @@ def golden_params(layer: Layer) -> list[pytest.param]:
     """``load_goldens``, wrapped so each case carries its golden id as the pytest node id.
 
     Parametrizing on ``load_goldens`` directly is what you must *not* do: pytest then names the
-    cases by position in the filtered list, and the two layers filter differently — golden 10 is
-    retriever-only, 22 and 23 are agent-only. ``[golden19]`` meant golden 21 in the agent suite and
-    golden 20 in the retriever one, so a failure could not be traced back to ``goldens.json``
-    without counting. Now it reads ``[21]``.
+    cases by position in the filtered list, and the two layers filter differently — goldens 10, 17
+    and 18 are retriever-only, 22 and 23 are agent-only. ``[golden19]`` meant golden 23 in the agent
+    suite and golden 20 in the retriever one, so a failure could not be traced back to
+    ``goldens.json`` without counting. Now it reads ``[21]``.
     """
     return [
         pytest.param(case, id=str(case.id), marks=pytest.mark.tables if case.is_table else ())

@@ -16,5 +16,21 @@ class RetrieverToolInput(BaseModel):
     )
 
 
+class FindPersonToolInput(BaseModel):
+    """Input schema for the FindPersonTool."""
+
+    name: str = Field(
+        description='The full name or first name of the professor or staff member to look up.',
+    )
+
+
+class FindPlaceToolInput(BaseModel):
+    """Input schema for the FindPlaceTool."""
+
+    name: str = Field(
+        description="The name of the campus place to look up, e.g. 'Main Library', 'Cafeteria', 'Gym'.",
+    )
+
+
 class AgentResponse(TypedDict):
     messages: list[BaseMessage]

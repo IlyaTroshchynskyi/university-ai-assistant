@@ -183,12 +183,17 @@ are fully real and observable.
 
 ## Evaluating the RAG pipeline
 
-Two DeepEval suites score the assistant against 23 hand-written goldens: one measures the
-retriever on its own (`KnowledgeService.search`, production defaults), the other measures the
-answer `POST /langchain-assistant` gives.
+Three suites under `tests/integration`. Two of them score the assistant against 23 hand-written
+goldens with DeepEval: one measures the retriever on its own (`KnowledgeService.search`, production
+defaults), the other measures the answer `POST /langchain-assistant` gives. The third asserts
+*routing* — which of `retriever`, `find_person`, `find_place` a question sends the agent to.
 
 ```bash
-make eval
+make eval            # all three
+make eval-retriever  # retrieval only, no agent call
+make eval-agent      # the answers
+make eval-routing    # tool choice — no judges, no Qdrant, cheapest by far
+make eval-tables     # the goldens whose answers live inside tables
 ```
 
 **It calls the real OpenAI API and costs money.** A plain `pytest` never does — the suites are
@@ -197,10 +202,17 @@ turns off the stub `OPENAI_API_KEY` that the rest of the tests run on.
 
 Before the first run:
 
-- **Ingest the handbook.** Both suites search the live `university_kb` collection. A session
-  preflight probes it and skips the whole suite with a reason if it is empty or unreachable, so an
-  un-ingested collection does not show up as 43 failing metrics. Populate it via `POST /documents`.
+- **Ingest the handbook.** The two scoring suites search the live `university_kb` collection. A
+  session preflight probes it and skips them with a reason if it is empty or unreachable, so an
+  un-ingested collection does not show up as 41 failing metrics. Populate it via `POST /documents`.
+  `make eval-routing` needs neither — it stubs both tool backends out.
 - **Have Qdrant up** (`QDRANT_URL`, default `http://localhost:6333`).
+- **No DynamoDB needed** — and that is deliberate. The session points `DYNAMODB_*_TABLE` at
+  `*_test` tables that nothing creates during an eval run, and a failing tool does not raise: the
+  agent's `ToolNode` catches it and hands the model an error message, so the answer degrades
+  quietly instead of turning red. The agent goldens are therefore kept off `find_person` and
+  `find_place` — 17 and 18 ask for campus opening hours and are retriever-only since 2026-08-11.
+  Their routing is asserted by `make eval-routing`, which stubs both backends.
 - **Optionally set `EVAL_MODEL_API_KEY`** in `.env` to bill the judge separately. Leave it unset
   and the judge uses `OPENAI_API_KEY`, same as the app.
 

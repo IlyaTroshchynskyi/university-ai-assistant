@@ -38,7 +38,8 @@ was still a runtime dependency).
 
 Both suites run their full sets again as of 2026-08-10: the agent slice was removed, and
 `TestRetrieverEvaluation` was uncommented and un-sliced. `pytest tests/integration
---collect-only` reports **43** cases, 22 + 21.
+--collect-only` reports **47** cases as of 2026-08-11 — 21 retriever, 20 agent, and the 6 routing
+cases of the third suite, which this document predates.
 
 Restoring the retriever class needed one change beyond deleting the comment markers: its
 `pytestmark` now carries `pytest.mark.asyncio(loop_scope='session')`, for the same reason the
@@ -207,16 +208,24 @@ each suite if that selection is wanted back (`eval-tables` below depends on it).
 | 14 | Deposit amount, deadline and credit | Key Dates | retriever, agent |
 | 15 | Studio annual cost | Housing | retriever, agent |
 | 16 | Housing application prerequisites | Housing | retriever, agent |
-| 17 | Library hours | Campus Life | retriever, agent |
-| 18 | Cafeteria closed Sunday | Campus Life | retriever, agent |
+| 17 | Library hours | Campus Life | retriever *(agent layer removed 2026-08-11)* |
+| 18 | Cafeteria closed Sunday | Campus Life | retriever *(agent layer removed 2026-08-11)* |
 | 19 | Academic year dates | Key Dates (table) | retriever, agent |
 | 20 | Lab fee and who pays it | Tuition & Fees (table) | retriever, agent |
 | 21 | Civil Engineering summary row | Tuition summary (table) | retriever, agent |
 | 22 | No medical faculty | — | agent |
 | 23 | Greeting | — | agent |
 
-21 cases feed the retriever suite, 22 feed the agent suite — 43 in total, not the 44 this
+21 cases feed the retriever suite, 20 feed the agent suite — 41 in total, not the 44 this
 document originally planned.
+
+Cases 17 and 18 lost their `agent` tag on 2026-08-11, when `find_place` was registered on the
+agent. Both ask for a named campus place's opening hours, which is verbatim what the tool's
+prompt bullet claims, so the agent stopped answering them out of the handbook and started
+routing them to DynamoDB — a table the eval session does not create. The questions are still
+worth asking; they are just a *routing* assertion now, and `test_tool_routing_eval.py` makes it
+(`place-hours`, `place-where`). On the retriever side nothing changed: the Campus Life passages
+are in the handbook and their retrieval is still scored.
 
 Case 10 lost its `agent` tag on 2026-08-10. Its answer was right every time, but
 `FaithfulnessMetric` kept scoring 0.667–0.714 on it (roughly four runs in six) for one reason:
