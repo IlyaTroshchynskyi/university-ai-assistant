@@ -19,6 +19,7 @@ from deepeval.metrics import (
 )
 from deepeval.models import GPTModel
 from deepeval.test_case import ConversationalTestCase, LLMTestCase, LLMTestCaseParams, TurnParams
+import httpx
 
 from tests.integration.config import get_eval_settings
 
@@ -38,35 +39,47 @@ CORRECTNESS_CRITERIA = (
 
 @lru_cache
 def judge_model() -> GPTModel:
+    """The judge every metric scores with, built once.
+
+    ``async_http_client`` is what keeps one connection pool for the whole run. DeepEval builds a
+    fresh ``AsyncOpenAI`` on *every* judge call (``load_model(async_mode=True)`` inside its generate
+    methods), so caching the ``GPTModel`` alone still pays a TLS handshake per metric per golden,
+    and leaves every one of those clients unclosed.
+
+    Unclosed matters beyond the wasted handshake: the OpenAI SDK's default client is an
+    ``AsyncHttpxClientWrapper`` whose ``__del__`` fires ``create_task(self.aclose())``. Nobody
+    awaits that task, so when the garbage collector reaches those clients as the session loop is
+    closing, each one raises ``RuntimeError('Event loop is closed')`` inside a task no one
+    retrieves — a wall of tracebacks after a run that actually passed. Handing in an
+    ``httpx.AsyncClient`` sidesteps it: the SDK then uses it as given rather than wrapping it, and
+    ``httpx.AsyncClient`` has no ``__del__`` at all, so nothing is scheduled at collection time."""
     settings = get_eval_settings()
-    return GPTModel(model=settings.EVAL_JUDGE_MODEL, api_key=settings.EVAL_MODEL_API_KEY or None)
+    return GPTModel(
+        model=settings.EVAL_JUDGE_MODEL,
+        api_key=settings.EVAL_MODEL_API_KEY or None,
+        async_http_client=httpx.AsyncClient(),
+    )
 
 
 def retriever_metrics() -> list[BaseMetric]:
-    """How good the passages the retriever returned are. Three metrics, and each one compares a
-    different pair — the name says what it *scores*, not what it reads:
+    """How good the passages the retriever returned are. Three LLM-as-a-judge metrics, all scoring
+    the same ``retrieval_context`` but asking three different questions of it.
 
-    ===================  ======================================  ===================================
-    metric               compares                                a low score means
-    ===================  ======================================  ===================================
-    ContextualRelevancy  question ↔ passages                     the passages carry a lot the
-                                                                 question never asked about
-    ContextualRecall     expected answer ↔ passages              the passages are missing something
-                                                                 the answer needs
-    ContextualPrecision  question + expected answer ↔ the        the useful passages are ranked
-                         *order* of the passages                 below the useless ones
-    ===================  ======================================  ===================================
+    **ContextualRelevancyMetric — is the retrieved context on topic?**
+    Measures the overall relevance of the information presented in ``retrieval_context`` for the
+    given ``input``. The judge cuts every passage into statements and rules on each one separately:
+    does this statement bear on the question, yes or no.
 
-    **None of the three looks at the generated answer.** ``actual_output`` plays no part here,
-    which is what makes this suite a measurement of retrieval alone — and why the cases in
-    ``test_retriever_eval.py`` are built without one. DeepEval's docs list ``actual_output`` as a
-    required param for all three; that is stale. In the installed 3.9.6 the string does not appear
-    anywhere in the three metric packages, prompt templates included, and ``_required_params``
-    does not contain it either.
+    **ContextualRecallMetric — did the retriever find everything the answer needs?**
+    Measures the extent to which ``retrieval_context`` aligns with ``expected_output``. The judge
+    cuts the golden answer into sentences and asks of each one whether it can be attributed to some
+    passage; the score is the share that can.
 
-    ``_required_params`` over-declares in the other direction too: it lists ``INPUT`` for recall,
-    which in fact reads only ``expected_output`` and ``retrieval_context``. Take the table above,
-    not the declaration, as the answer to "what would change this score".
+    **ContextualPrecisionMetric — are the useful passages ranked first?**
+    Evaluates whether the passages in ``retrieval_context`` that are relevant to ``input`` are
+    ranked higher than the irrelevant ones. The judge labels each passage relevant or not (against
+    the question and the expected answer).
+
     """
     settings, model = get_eval_settings(), judge_model()
     return [
@@ -78,55 +91,32 @@ def retriever_metrics() -> list[BaseMetric]:
 
 def agent_metrics(has_context: bool) -> list[BaseMetric]:
     """How good the agent's answer is. Three metrics that deliberately pull in different
-    directions, because each is blind to what the other two check:
+    directions, because each is blind to what the other two check.
 
-    ===============  =========================================  ====================================
-    metric           compares                                   a low score means
-    ===============  =========================================  ====================================
-    Correctness      answer ↔ the golden's expected answer      a figure, date or name is wrong or
-                                                                missing
-    AnswerRelevancy  question ↔ answer                          the answer padded, dodged, or
-                                                                wandered off the question
-    Faithfulness     answer ↔ the passages the tool returned    the answer states something the
-                                                                passages do not
-    ===============  =========================================  ====================================
+    **Correctness (GEval) — does the answer say what the golden says?**
+    The only custom metric of the three: the judge is handed the answer and the golden's expected
+    answer, plus ``CORRECTNESS_CRITERIA``, and returns one score for how well the criteria are met.
+    That criteria text is what defines the metric, and it says facts only — every number, amount,
+    date and name in the expected answer must appear with the same value, while wording, ordering
+    and extra phrasing are explicitly forgiven.
 
-    What each one *cannot* see matters as much as what it checks:
+    **AnswerRelevancyMetric — does the answer address the question that was asked?**
+    Measures the quality of the generator by evaluating how relevant ``actual_output`` is to
+    ``input``. The judge cuts the answer into statements and rules on each one against the
+    question; the score is the share not ruled irrelevant (an "I don't know" verdict counts as
+    relevant).
 
-    * ``Correctness`` never receives the question — its ``evaluation_params`` are the two outputs
-      and nothing else — so it cannot notice that an accurate answer ignored what was asked.
-    * ``AnswerRelevancy`` never receives the expected answer or the passages, so a fluent, wholly
-      invented answer scores 1.000 on it. It is the metric that polices padding, which
-      ``CORRECTNESS_CRITERIA`` explicitly forgives; that division of labour is on purpose.
-    * ``Faithfulness`` never receives the expected answer. Grounded is not the same as true: on
-      golden 16 the agent quotes a date that really is in the retrieved passages but belongs to a
-      different deadline, and passes at 0.857. Only ``Correctness`` catches that one.
+    **FaithfulnessMetric — is the answer grounded in what the tool returned?**
+    Measures the quality of the generator by evaluating whether ``actual_output`` factually aligns
+    with the contents of ``retrieval_context``. The judge first extracts the "truths" stated by the
+    passages and the "claims" made by the answer, then rules on each claim against those truths;
+    the score is the share not contradicted. This is the hallucination check.
+    """
 
-    The consequence for dataset design: a golden's question has to be as wide as its expected
-    answer. Ask narrowly while expecting four facts and the two metrics conflict with no
-    resolution — answer narrowly and ``Correctness`` fails, answer fully and ``AnswerRelevancy``
-    does, because neither can see the ground the other is standing on.
-
-    (``Faithfulness`` also *declares* ``INPUT`` in its ``_required_params`` while reading only
-    ``actual_output`` and ``retrieval_context``, same over-declaration as ``ContextualRecall``.)
-
-    ``has_context`` is false when the agent answered without calling the retriever — small talk,
-    for one. Both ready-made metrics are dropped there, and only correctness is left:
-
-    * Faithfulness has nothing to check against, and scoring it against an empty context measures
-      nothing.
-    * Answer relevancy needs a question for the answer to be relevant *to*. A greeting is not one.
-      Measured: "Hi there!" answered with "Hello! How can I assist you with your university
-      questions today?" scores 0.500, the judge's reason being that the reply "uses 'Hello!'
-      instead of matching the input greeting 'Hi there!'". No greeting can pass that.
-
-    Correctness still runs, so a no-tool answer that invents facts is caught by the golden's
-    expected answer — which is where the small-talk cases state what a good reply looks like."""
     settings = get_eval_settings()
     model = judge_model()
     metrics: list[BaseMetric] = [
-        # answer ↔ expected answer. ``evaluation_params`` is the whole of what the judge sees, so
-        # leaving INPUT out is what keeps this metric about facts rather than about relevance.
+        # answer ↔ expected answer, facts only.
         GEval(
             name='Correctness',
             criteria=CORRECTNESS_CRITERIA,
@@ -137,15 +127,13 @@ def agent_metrics(has_context: bool) -> list[BaseMetric]:
     ]
     if has_context:
         metrics += [
-            # question ↔ answer. Share of the answer's statements that address the question, so
-            # the score is quantised by how many statements it has.
+            # question ↔ answer. Share of the answer's statements that address the question.
             AnswerRelevancyMetric(
                 threshold=settings.EVAL_ANSWER_RELEVANCY_THRESHOLD,
                 model=model,
                 include_reason=True,
             ),
-            # answer ↔ retrieved passages. The hallucination check: a ratio of the answer's claims
-            # that the passages support.
+            # answer ↔ retrieved passages. Share of the answer's claims the passages support.
             FaithfulnessMetric(
                 threshold=settings.EVAL_FAITHFULNESS_THRESHOLD,
                 model=model,
@@ -172,16 +160,23 @@ OUTCOME_STEPS = [
 
 
 def conversation_metrics() -> list[BaseConversationalMetric]:
-    """How good a whole conversation is. Two metrics, each blind to the other:
+    """How good a whole conversation is. Two metrics, each blind to the other. Both read the same
+    left-hand side — everything the assistant said — and differ entirely in what they hold it
+    against:
 
-    ==================  =========================================  ==================================
-    metric              compares                                   a low score means
-    ==================  =========================================  ==================================
-    TurnFaithfulness    assistant turns ↔ everything the tools      the agent stated something no
-                        returned across the window                  passage or record supports
-    Outcome             the turns ↔ the case's expected outcome     a fact is wrong, missing, or was
-                                                                    not revised when it had to be
-    ==================  =========================================  ==================================
+    **TurnFaithfulnessMetric — did the agent stay grounded across the conversation?**
+    Compares the assistant turns ↔ the ``retrieval_context`` attached to those turns.
+    ``FaithfulnessMetric`` lifted to a dialogue: the turns are grouped into user→assistant
+    interactions, a slidingconversation_metrics window ending at each interaction is flattened into one block of text,
+    and each block is scored exactly as ``Faithfulness`` scores a single answer — truths from the
+    passages, claims from what the assistant said, one verdict per claim. The metric's score is the
+    mean over the windows.
+
+    **Outcome (ConversationalGEval) — did the conversation end up establishing the right facts?**
+    Compares the assistant turns ↔ the case's ``expected_outcome``.
+     Reads ``CONTENT`` and ``EXPECTED_OUTCOME``; it never sees a passage, so it has no idea where
+     a correct fact came from.
+
     """
     settings, model = get_eval_settings(), judge_model()
     return [

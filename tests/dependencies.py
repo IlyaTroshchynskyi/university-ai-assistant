@@ -11,7 +11,7 @@ class _DepOverride:
     override: Callable
 
 
-def override_app_test_dependencies(app: FastAPI):
+def override_app_test_dependencies(app: FastAPI) -> None:
     deps: list[_DepOverride] = []
     for dep in deps:
         override_dependency(app, dep.dependency, dep.override)

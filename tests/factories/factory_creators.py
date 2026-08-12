@@ -23,12 +23,14 @@ async def create_test_room(creation: CreateRoom, db_client: DynamoDBClient) -> R
 async def create_test_faculty(creation: FacultyCreate, db_client: DynamoDBClient) -> FacultyItem:
     repo = FacultyRepository(db_client, get_settings())
     faculty = await repo.create_faculty(creation)
+    assert faculty is not None, 'faculty creation failed — the name was already taken'
     return faculty
 
 
 async def create_test_program(faculty_id: str, db_client: DynamoDBClient, **overrides: str | int) -> ProgramItem:
     repo = ProgramsRepository(db_client, get_settings())
-    _, program = await repo.create_program(ProgramCreationFactory.build(faculty_id=faculty_id, **overrides))
+    outcome, program = await repo.create_program(ProgramCreationFactory.build(faculty_id=faculty_id, **overrides))
+    assert program is not None, f'program creation failed with {outcome}'
     return program
 
 

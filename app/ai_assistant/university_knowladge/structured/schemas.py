@@ -18,8 +18,8 @@ class DocElement:
     text: str | None = None
 
 
-@dataclass
-class Chunk(slots=True):
+@dataclass(slots=True)
+class Chunk:
     """A retrieval-ready unit with the metadata retrieval needs to filter and cite."""
 
     text: str

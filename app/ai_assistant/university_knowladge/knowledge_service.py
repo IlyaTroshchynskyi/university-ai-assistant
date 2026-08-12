@@ -19,6 +19,7 @@ from qdrant_client.models import PointStruct, ScoredPoint
 from app.ai_assistant.university_knowladge.embedder import get_embedder, OpenAIEmbedder
 from app.ai_assistant.university_knowladge.pdf_loader import PdfLoader
 from app.ai_assistant.university_knowladge.sparse_embedder import get_sparse_embedder, SparseEmbedder
+from app.ai_assistant.university_knowladge.structured.loader import get_structured_loader, StructuredDocumentLoader
 from app.ai_assistant.university_knowladge.text_splitter import RecursiveTextSplitter, TextSplitter
 from app.ai_assistant.university_knowladge.vector_store import (
     DENSE_VECTOR,
@@ -52,6 +53,7 @@ class KnowledgeService:
         sparse_embedder: SparseEmbedder,
         splitter: TextSplitter,
         pdf_loader: PdfLoader,
+        structured_loader: StructuredDocumentLoader,
         settings: Settings,
     ):
         self._qdrant = qdrant
@@ -59,6 +61,7 @@ class KnowledgeService:
         self._sparse_embedder = sparse_embedder
         self._splitter = splitter
         self._pdf_loader = pdf_loader
+        self._structured_loader = structured_loader
         self._min_score = settings.SEARCH_MIN_SCORE
         self._mmr_lambda = settings.SEARCH_MMR_LAMBDA
         self._mmr_fetch_mult = settings.SEARCH_MMR_FETCH_MULT
@@ -78,8 +81,53 @@ class KnowledgeService:
         if not chunks:
             return 0
 
-        for start in range(0, len(chunks), _EMBED_BATCH_SIZE):
-            batch = chunks[start : start + _EMBED_BATCH_SIZE]
+        payloads = [
+            {'text': chunk, 'source': source, 'chunk': index, 'doc_type': doc_type}
+            for index, chunk in enumerate(chunks)
+        ]
+        await self._embed_and_upsert(chunks, payloads, source)
+
+        logger.info('Ingested %d chunk(s) from %r', len(chunks), source)
+        return len(chunks)
+
+    async def ingest_pdf_structured(self, data: bytes, source: str, doc_type: str) -> int:
+        """Same contract as :meth:`ingest_pdf`, but chunked by the structure-aware pipeline
+        (``structured/``) instead of by flat character splitting: the PDF is parsed into typed
+        elements, tables get an LLM summary prepended and images an LLM description, and tables
+        and images are then emitted as atomic chunks while text is split within its section.
+
+        The payload keeps every key :meth:`ingest_pdf` writes — ``text``, ``source``, ``chunk``,
+        ``doc_type`` — so both chunkings are searchable through the same code path and the default
+        ``doc_type`` filter in :meth:`search`. ``Chunk.index`` is stored as ``chunk`` for that
+        reason. The three structure facets (``element_type``, ``page``, ``section``) are added on
+        top; nothing filters on them yet, but they are what a citation needs."""
+        await self._qdrant.ensure_collection()
+
+        chunks = await self._structured_loader.load(data, source)
+        if not chunks:
+            return 0
+
+        texts = [chunk.text for chunk in chunks]
+        payloads = [
+            {
+                'text': chunk.text,
+                'source': chunk.source,
+                'chunk': chunk.index,
+                'doc_type': doc_type,
+                'element_type': chunk.element_type,
+                'page': chunk.page,
+                'section': chunk.section,
+            }
+            for chunk in chunks
+        ]
+        await self._embed_and_upsert(texts, payloads, source)
+
+        logger.info('Ingested %d structured chunk(s) from %r', len(chunks), source)
+        return len(chunks)
+
+    async def _embed_and_upsert(self, texts: list[str], payloads: list[dict], source: str) -> None:
+        for start in range(0, len(texts), _EMBED_BATCH_SIZE):
+            batch = texts[start : start + _EMBED_BATCH_SIZE]
             # Independent (dense = OpenAI network call, sparse = CPU in a worker thread), so run
             # both concurrently in a task group and overlap the latencies instead of paying them
             # in sequence.
@@ -92,14 +140,11 @@ class KnowledgeService:
                 PointStruct(
                     id=str(uuid.uuid5(_ID_NAMESPACE, f'{source}:{start + j}')),
                     vector={DENSE_VECTOR: dense_vectors[j], SPARSE_VECTOR: sparse_vectors[j]},
-                    payload={'text': chunk, 'source': source, 'chunk': start + j, 'doc_type': doc_type},
+                    payload=payloads[start + j],
                 )
-                for j, chunk in enumerate(batch)
+                for j in range(len(batch))
             ]
             await self._qdrant.upsert(points)
-
-        logger.info('Ingested %d chunk(s) from %r', len(chunks), source)
-        return len(chunks)
 
     async def search(
         self,
@@ -124,6 +169,7 @@ class KnowledgeService:
             query_filter=self._build_filter(source, doc_type),
             score_threshold=self._min_score,
         )
+        self._log_hits(query, hits)
         return hits
 
     async def search_mmr(
@@ -153,7 +199,26 @@ class KnowledgeService:
             score_threshold=self._min_score,
             with_vectors=True,
         )
-        return self._rerank_mmr(dense_vector, candidates, limit)
+        hits = self._rerank_mmr(dense_vector, candidates, limit)
+        self._log_hits(query, hits)
+        return hits
+
+    @staticmethod
+    def _log_hits(query: str, hits: list[ScoredPoint]) -> None:
+        if not hits:
+            logger.info('Retriever hits (0) for %r', query)
+            return
+
+        lines = []
+        for hit in hits:
+            payload = hit.payload or {}
+            kind = payload.get('element_type', '-')
+            page = payload.get('page', '-')
+            section = str(payload.get('section') or '-')[:34]
+            source, chunk = payload.get('source', '-'), payload.get('chunk', '-')
+            lines.append(f'  {hit.score:.3f}  {kind:<6} p{page:<4} {section:<34} {source}#{chunk}')
+
+        logger.info('Retriever hits (%d) for %r:\n%s', len(hits), query, '\n'.join(lines))
 
     def _rerank_mmr(self, query_vector: list[float], candidates: list[ScoredPoint], limit: int) -> list[ScoredPoint]:
         """Reorder ``candidates`` by MMR and keep the top ``limit``. Candidates missing their dense
@@ -209,7 +274,7 @@ class KnowledgeService:
         return selected
 
     @staticmethod
-    def _normalize(matrix: np.ndarray) -> np.ndarray:
+    def _normalize(matrix: np.ndarray) -> np.ndarray:  # type: ignore[explicit-any]
         """Row-normalize so dot products read as cosine similarity; zero rows are left untouched."""
         norms = np.linalg.norm(matrix, axis=1, keepdims=True)
         return matrix / np.where(norms == 0.0, 1.0, norms)
@@ -225,5 +290,6 @@ def get_knowledge_service() -> KnowledgeService:
         sparse_embedder=get_sparse_embedder(),
         splitter=RecursiveTextSplitter(),
         pdf_loader=PdfLoader(),
+        structured_loader=get_structured_loader(),
         settings=settings,
     )

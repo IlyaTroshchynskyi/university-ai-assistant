@@ -66,6 +66,11 @@ select = [
 ]
 pydocstyle.convention = 'google'
 
+[tool.ruff.lint.per-file-ignores]
+# Standalone demo scripts, run by hand: their printed output is the deliverable, so T20 (no print)
+# does not apply. Nothing under examples/ is imported by app/ or tests/.
+"examples/*" = ["T20"]
+
 [tool.ruff.lint.isort]
 known-local-folder = ["tests", "app", "scripts"]
 split-on-trailing-comma = true
@@ -81,4 +86,100 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "polyfactory>=3.3.0",  # tests/factories only — never imported by app/
     "deepeval>=3.9.6",  # tests/integration only — never imported by app/
+    "mypy>=2.3.0",
 ]
+
+[tool.mypy]
+# Basic configuration
+python_version = "3.12"  # Target Python version for type checking
+#platform = "linux"      # Target platform for type checking
+
+# Files and modules to check
+files = ["app", "tests"]  # Check your application code and tests
+exclude = [
+    "migrations/",        # Exclude alembic migrations (auto-generated)
+    ".venv/",            # Exclude virtual environment
+    "__pycache__/",      # Exclude Python cache files
+]
+
+# Import discovery
+#mypy_path = "app"        # Additional paths for module resolution
+namespace_packages = true # Support PEP 420 namespace packages
+
+# Type checking strictness levels - Good balance for development
+strict = true           # Don't use strict mode initially
+
+# Core type checking options - Focus on your code quality
+check_untyped_defs = true       # Check function bodies in untyped functions
+disallow_any_generics = false   # Allow generic types without parameters (gradual)
+disallow_incomplete_defs = true # Require complete function type annotations
+disallow_subclassing_any = false # Allow subclassing Any for flexibility
+disallow_untyped_calls = true  # Allow calling library functions without types
+disallow_untyped_decorators = false # Allow untyped decorators (FastAPI, etc.)
+disallow_untyped_defs = true    # Require function type annotations in your code
+no_implicit_optional = true     # Don't assume arguments with default None are Optional
+no_implicit_reexport = false    # Allow implicit re-exports for flexibility
+strict_equality = true         # Allow equality checks between different types
+warn_redundant_casts = true     # Warn about redundant type casts
+warn_return_any = false         # Don't warn about functions returning Any (gradual)
+warn_unused_ignores = true      # Warn about unused # type: ignore comments
+
+disallow_any_explicit = true # Prevents using Any in generics like list[Any]
+allow_redefinition = false # Experimental: ensures consistent function signatures across overrides
+# Catch accidental variable shadowing
+local_partial_types = true
+
+# Error output configuration
+show_error_codes = true         # Show error codes in output (e.g., [no-untyped-def])
+show_column_numbers = true      # Show column numbers in error messages
+show_error_context = true       # Show source code context for errors
+color_output = true             # Use colors in terminal output
+error_summary = true            # Show error summary at the end
+pretty = true                   # Use pretty-printed error messages
+
+# Cache configuration
+cache_dir = ".mypy_cache"       # Directory for mypy cache files
+sqlite_cache = true             # Use SQLite for caching (faster than file-based cache)
+incremental = true              # Enable incremental type checking
+
+# Import handling - Completely ignore all third-party libraries
+ignore_missing_imports = true   # Ignore missing imports from any library. Don’t dive into 3rd-party libs. You type-check your code only.
+follow_imports = "skip"         # SKIP following imports to libraries - only check YOUR code
+follow_imports_for_stubs = false # Don't follow imports in stub files
+
+# Warnings configuration
+warn_no_return = true           # Warn about functions that don't return a value
+warn_unreachable = true         # Warn about unreachable code
+
+# Configuration for migration files (ignore completely)
+[[tool.mypy.overrides]]
+module = "migrations.*"
+ignore_errors = true            # Ignore all errors in migration files
+
+# Configuration for test files (require type annotations)
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = true    # Require type annotations for test functions
+disallow_incomplete_defs = true # Require complete type annotations in tests
+ignore_missing_imports = true   # Ignore missing imports in tests
+disallow_any_explicit = false   # Tests mirror the boundary signatures below; see the note there
+
+# `disallow_any_explicit` is on globally so our own domain code has to name its types. These
+# modules are the exception: each is an adapter over an SDK that is dynamically typed by design,
+# and the `Any` in them is copied from the interface being implemented, not chosen. Narrowing it
+# would either be a lie about what the SDK can hand us or a Liskov violation on an override.
+#
+#   dynamodb.*   — an item is `dict[str, <any DynamoDB type>]`; boto3 has no narrower shape, and
+#                  the typed-stub spellings collapse to Any anyway under `follow_imports = skip`.
+#   checkpointer — LangGraph's BaseCheckpointSaver dictates `dict[str, Any]` filters, `Any`
+#                  channel values and `Sequence[tuple[str, Any]]` writes; we implement it.
+#   persistence  — same story for CrewAI's FlowPersistence (`dict[str, Any] | BaseModel` state).
+#
+# Reach for a new entry here only when the `Any` comes from an interface you do not own.
+[[tool.mypy.overrides]]
+module = [
+    "app.core.dynamodb.*",
+    "app.ai_assistant_langchain.checkpointer.*",
+    "app.ai_assistant.persistence",
+]
+disallow_any_explicit = false

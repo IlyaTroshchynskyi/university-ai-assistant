@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = 'text-embedding-3-small'
     SPARSE_MODEL: str = 'Qdrant/bm25'
     QDRANT_URL: str = 'http://localhost:6333'
-    QDRANT_COLLECTION: str = 'university_kb'
+    QDRANT_COLLECTION: str = 'university_kb_v2'
 
     SEARCH_MIN_SCORE: float = 0.3
 

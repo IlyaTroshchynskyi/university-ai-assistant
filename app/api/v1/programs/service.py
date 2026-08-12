@@ -20,6 +20,7 @@ class ProgramService:
             raise AlreadyExistError(
                 f'Program already exists with name = {creation.name} in faculty = {creation.faculty_id}'
             )
+        assert program is not None
         return program
 
     async def list_programs(self) -> list[ProgramItem]:

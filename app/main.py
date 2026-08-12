@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Annotated
+from typing import Annotated, Iterator
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.openapi.utils import get_openapi
@@ -39,7 +39,7 @@ def create_app() -> FastAPI:
 app = create_app()
 
 
-def _walk(node: object):
+def _walk(node: object) -> Iterator[dict]:
     """Yield every dict inside a nested JSON structure."""
     if isinstance(node, dict):
         yield node
@@ -99,16 +99,19 @@ async def ask(
 async def ingest_document(
     file: Annotated[UploadFile, File()],
     knowledge: Annotated[KnowledgeService, Depends(get_knowledge_service)],
-    doc_type: str | None = Form('general'),
+    doc_type: str = Form('general'),
+    structured: bool = Form(False),
 ) -> IngestResponse:
     """Ingest a PDF into the knowledge base: extract text, split into chunks, embed and store
     them in Qdrant so the retriever can find them. ``doc_type`` (e.g. ``program`` / ``policy`` /
-    ``admissions``) is an optional facet a search can later filter on."""
+    ``admissions``) is an optional facet a search can later filter on.
+    """
     if file.content_type != 'application/pdf' and not (file.filename or '').lower().endswith('.pdf'):
         raise HTTPException(status_code=400, detail='Only PDF files are supported.')
 
     source = file.filename or 'upload.pdf'
-    chunks = await knowledge.ingest_pdf(await file.read(), source, doc_type=doc_type)
+    ingest = knowledge.ingest_pdf_structured if structured else knowledge.ingest_pdf
+    chunks = await ingest(await file.read(), source, doc_type=doc_type)
     return IngestResponse(source=source, chunks=chunks)
 
 

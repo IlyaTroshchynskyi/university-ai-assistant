@@ -152,7 +152,7 @@ class DynamoDBService:
                 expr, names, values = self._build_condition(action.condition)
                 entry['ConditionExpression'] = expr
                 self._set_expressions(entry, names, values)
-            transact_items.append({_TRANSACT_MEMBER[type(action)]: entry})
+            transact_items.append({_TRANSACT_MEMBER[type(action)]: entry})  # type: ignore[misc]
 
         await self._client.transact_write_items(TransactItems=transact_items)
 

@@ -13,6 +13,8 @@ from app.ai_assistant.university_knowladge.structured.schemas import DocElement
 _IMAGE_REF = re.compile(r'^!\[.*?\]\((.+?)\)$')
 _PAGE_NUMBER = re.compile(r'(Page)\s+\d+', re.IGNORECASE)
 _HEADING = re.compile(r'^#{1,6}\s+(.*)$')
+# The `|---|---|` rule under a Markdown table's header row.
+_TABLE_RULE = re.compile(r'^\|[\s:|-]+\|$')
 
 
 def _heading_text(line: str) -> str | None:
@@ -48,7 +50,7 @@ def _running_lines(pages: list[dict]) -> set[str]:
     header/footer that should be treated as noise rather than content."""
     if len(pages) < 2:
         return set()
-    seen = Counter()
+    seen: Counter[str] = Counter()
 
     for page in pages:
         for line in {ln.strip() for ln in page.get('text', '').splitlines() if ln.strip()}:
@@ -80,6 +82,50 @@ def _classify_block(block: list[str], page: int, section: str | None) -> DocElem
     return DocElement(kind='text', page=page, section=section, raw='\n'.join(block))
 
 
+def _table_header(raw: str) -> list[str]:
+    """A Markdown table's header row plus its ``|---|`` rule — the lines PyMuPDF4LLM repeats at
+    the top of every fragment when one table is split across pages."""
+    lines = raw.splitlines()
+    if len(lines) >= 2 and _TABLE_RULE.match(lines[1].strip()):
+        return lines[:2]
+    return lines[:1]
+
+
+def _continues_table(previous: DocElement, element: DocElement) -> bool:
+    """Whether ``element`` is the rest of ``previous``, split by a page break.
+
+    Pagination is the only thing that splits one table into two elements here, so a continuation
+    is a table that starts on a *later* page, sits under the same heading, and carries the same
+    header row. Requiring all three keeps two genuinely different tables apart: the handbook has
+    an ``Admission cycle`` and an ``Academic year`` table whose headers are both ``|Event|Date|``,
+    told apart by their section — and a repeated header alone would have merged them."""
+    return (
+        previous.kind == 'table'
+        and element.kind == 'table'
+        and previous.section == element.section
+        and element.page > previous.page
+        and _table_header(element.raw) == _table_header(previous.raw)
+    )
+
+
+def _merge_split_tables(elements: list[DocElement]) -> list[DocElement]:
+    """Join table fragments that pagination split, dropping the header each continuation repeats
+    so the merged table has exactly one. The merged element keeps the first fragment's page, which
+    is where the table starts.
+
+    Merging here rather than in the chunker is what makes the rest of the pipeline see one table:
+    enrichment runs per element, so two fragments would otherwise cost two LLM calls and produce
+    two summaries, each describing half the rows."""
+    merged: list[DocElement] = []
+    for element in elements:
+        if merged and _continues_table(merged[-1], element):
+            body = element.raw.splitlines()[len(_table_header(element.raw)) :]
+            merged[-1].raw = '\n'.join([merged[-1].raw, *body])
+        else:
+            merged.append(element)
+    return merged
+
+
 def parse_pages(pages: list[dict]) -> list[DocElement]:
     """Classify PyMuPDF4LLM page dicts into ordered :class:`DocElement`s."""
     running = _running_lines(pages)
@@ -95,7 +141,7 @@ def parse_pages(pages: list[dict]) -> list[DocElement]:
                 section = heading
                 continue
             elements.append(_classify_block(block, page_no, section))
-    return elements
+    return _merge_split_tables(elements)
 
 
 class Parser(ABC):

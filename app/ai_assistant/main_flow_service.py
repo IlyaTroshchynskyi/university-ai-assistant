@@ -1,4 +1,5 @@
 import base64
+from typing import TYPE_CHECKING
 
 from crewai import LLM
 from crewai.flow.async_feedback import HumanFeedbackPending
@@ -10,6 +11,9 @@ from app.ai_assistant.tools.booking_tools import ProposedSlot
 from app.core.dynamodb.schemas import SlotStatus
 from app.core.dynamodb.slots_repository import open_slots_repository
 from app.settings import build_llm
+
+if TYPE_CHECKING:
+    from app.ai_assistant.main_flow import UniversityAssistantFlow
 
 MAX_HISTORY_MESSAGES = 10  # how many recent messages to feed back into the prompt
 
@@ -49,9 +53,16 @@ class MainFlowService:
         CONVERSATION_STORE.add(session_id, 'assistant', answer)
         return answer
 
-    async def _resume_or_start(self, question: str, history: list[dict], session_id: str, documents: list[str]):
+    async def _resume_or_start(
+        self, question: str, history: list[dict], session_id: str, documents: list[str]
+    ) -> tuple['UniversityAssistantFlow', object]:
         """Resume the session's paused booking if this message answers the confirmation;
-        otherwise start a fresh flow (abandoning any stale pause)."""
+        otherwise start a fresh flow (abandoning any stale pause).
+
+        The second element is whatever the flow run produced: ``HumanFeedbackPending`` when the
+        booking paused for confirmation, the answer otherwise. It is typed ``object`` because
+        CrewAI does not type its kickoff/resume return, and the caller narrows it with
+        ``isinstance``."""
         # Imported lazily: main_flow imports this module, so a top-level import would cycle.
         from app.ai_assistant.main_flow import UniversityAssistantFlow
 

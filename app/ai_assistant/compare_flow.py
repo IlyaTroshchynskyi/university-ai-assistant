@@ -46,7 +46,7 @@ class CompareState(BaseModel):
 
 class CompareProgramsFlow(Flow[CompareState]):
     @start()
-    async def extract_programs(self):
+    async def extract_programs(self) -> None:
         prompt = (
             'The user wants to compare two university programs. Extract the two program '
             'names they are comparing from the message below. If only one program is named, '
@@ -59,17 +59,17 @@ class CompareProgramsFlow(Flow[CompareState]):
         logger.info('Comparing %r vs %r', self.state.program_a, self.state.program_b)
 
     @listen(extract_programs)
-    async def research_a(self):
+    async def research_a(self) -> None:
         self.state.info_a = await self._research(self.state.program_a, self.state.question)
         logger.info('Research done for program A: %r', self.state.program_a)
 
     @listen(extract_programs)
-    async def research_b(self):
+    async def research_b(self) -> None:
         self.state.info_b = await self._research(self.state.program_b, self.state.question)
         logger.info('Research done for program B: %r', self.state.program_b)
 
     @listen(and_(research_a, research_b))
-    async def merge(self):
+    async def merge(self) -> None:
         # Fan-in: a plain LLM call (no tools) turns the two summaries into one side-by-side
         # answer. It must not invent facts beyond info_a / info_b — that is why it has no
         # retriever tool, unlike the research agent.

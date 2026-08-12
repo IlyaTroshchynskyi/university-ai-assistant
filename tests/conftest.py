@@ -139,7 +139,7 @@ class TestBaseClientClass:
     def _a_provide_client(
         self,
         not_auth_client: AsyncClient,
-    ):
+    ) -> None:
         self.not_auth_client = not_auth_client
 
 

@@ -9,6 +9,12 @@ site, so a write can't reach DynamoDB with a missing or hand-rolled key (which i
 The key attributes are ``@computed_field``s: they belong to ``model_dump()`` — and so to the item
 ``DynamoDBService.put_item`` sends — but are read-only, so nothing outside can set them. ``id``
 stays an ordinary field: generated on create, accepted back on read.
+
+Each one carries ``# type: ignore[prop-decorator]``, here and in the other item/schema modules.
+mypy refuses any decorator stacked on ``@property`` (mypy issue #1362) and has no setting to soften
+it; the ignore on the ``@computed_field`` line is what pydantic's own docs prescribe. Dropping
+``@property`` would silence it too, but then a type checker reads ``item.pk`` as the *method*
+rather than as ``str`` — which is why pydantic recommends keeping it.
 """
 
 from typing import ClassVar
@@ -35,12 +41,12 @@ class TableItem(BaseModel):
         need, and the one thing they can't get from an item they don't have yet."""
         return {'pk': f'{cls.entity}#{item_id}', 'sk': cls.meta_sk}
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def pk(self) -> str:
         return f'{self.entity}#{self.id}'
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def sk(self) -> str:
         return self.meta_sk
@@ -51,7 +57,7 @@ class TableItem(BaseModel):
         which is all a query filtering on it has to work with (there is no item yet)."""
         return cls.entity.lower()
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def entity_type(self) -> str:
         return self.entity_type_value()
@@ -69,7 +75,7 @@ class ListedItem(TableItem):
     Subclasses declare ``gsi1sk``, since that is what orders the listing.
     """
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def gsi1pk(self) -> str:
         return f'TYPE#{self.entity}'

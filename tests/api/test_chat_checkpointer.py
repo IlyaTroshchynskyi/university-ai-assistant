@@ -85,7 +85,9 @@ class TestChatWithUserCheckpointer(TestBaseClientClass):
         ) as agent_mock:
             await self.not_auth_client.post(ENDPOINT, json={'query': 'Hello', 'user_id': user_id})
 
-        messages, kwargs = agent_mock.await_args.args[0], agent_mock.await_args.kwargs
+        await_args = agent_mock.await_args
+        assert await_args is not None, 'run_agent was never awaited'
+        messages, kwargs = await_args.args[0], await_args.kwargs
         assert kwargs['user_id'] == user_id
         assert [message.content for message in messages] == ['Hello']
 

@@ -1,8 +1,9 @@
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator, Awaitable, Callable
+from typing import Any, AsyncGenerator, Awaitable, Callable, Mapping, Sequence
 
 from types_aiobotocore_dynamodb import DynamoDBClient
+from types_aiobotocore_dynamodb.type_defs import WriteRequestOutputTypeDef, WriteRequestTypeDef
 
 from db.load_dynamodb import table_definition
 
@@ -67,7 +68,9 @@ async def _clear_table(client: DynamoDBClient, name: str) -> None:
 
     for start in range(0, len(keys), BATCH_WRITE_LIMIT):
         batch = keys[start : start + BATCH_WRITE_LIMIT]
-        request = {name: [{'DeleteRequest': {'Key': key}} for key in batch]}
+        request: Mapping[str, Sequence[WriteRequestTypeDef | WriteRequestOutputTypeDef]] = {
+            name: [{'DeleteRequest': {'Key': key}} for key in batch]
+        }
         while request:  # DynamoDB may decline part of a batch and hand the rest back to be retried
             response = await client.batch_write_item(RequestItems=request)
             request = response.get('UnprocessedItems') or {}

@@ -71,7 +71,7 @@ class RoomItem(ListedItem, CreateRoom):
 
     entity: ClassVar[str] = 'ROOM'
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def gsi1sk(self) -> str:
         """Orders the room listing by building, then door number — zero-padded, because a sort key

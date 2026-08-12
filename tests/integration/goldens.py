@@ -36,7 +36,7 @@ class GoldenCase(BaseModel):
     def is_table(self) -> bool:
         """Whether this golden's answer lives inside a table, and so is what a chunking change
         splitting a table apart would break first. Goldens 19-21 today."""
-        return bool(self.section) and self.section.strip().endswith(_TABLE_SECTION_SUFFIX)
+        return self.section is not None and self.section.strip().endswith(_TABLE_SECTION_SUFFIX)
 
 
 def load_goldens(layer: Layer) -> list[GoldenCase]:
