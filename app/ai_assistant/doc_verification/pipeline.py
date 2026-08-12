@@ -53,7 +53,7 @@ async def verify(images_b64: list[str]) -> Verdict:
     if not images_b64:
         return Verdict(is_valid=False, message='No documents were uploaded, so there is nothing to verify.')
 
-    content = [{'type': 'text', 'text': _criteria_prompt()}]
+    content: list[dict[str, object]] = [{'type': 'text', 'text': _criteria_prompt()}]
     content += [{'type': 'image_url', 'image_url': {'url': _image_data_uri(img)}} for img in images_b64]
     llm = build_llm()
     return await llm.acall(messages=[{'role': 'user', 'content': content}], response_model=Verdict)

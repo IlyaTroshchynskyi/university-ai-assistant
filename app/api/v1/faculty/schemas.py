@@ -41,12 +41,12 @@ class FacultyNameItem(BaseModel):
         name alone."""
         return {'pk': f'{cls.entity}#{normalize_name(name)}', 'sk': cls.unique_sk}
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def pk(self) -> str:
         return f'{self.entity}#{normalize_name(self.name)}'
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def sk(self) -> str:
         return self.unique_sk

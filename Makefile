@@ -1,6 +1,7 @@
 lint:
 	ruff format
 	ruff check --fix
+	mypy --follow-imports=skip
 
 
 run_app:
@@ -42,3 +43,7 @@ eval-multiturn:
 
 eval-safety:
 	pytest tests/integration/test_safety_eval.py --run-eval --log-cli-level=INFO -v
+
+
+typecheck:
+	mypy --follow-imports=skip

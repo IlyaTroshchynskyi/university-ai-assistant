@@ -5,7 +5,7 @@ The prefixes are ``PostgresSaver``'s three table names — ``checkpoints``, ``ch
 key (``SCHED#``, ``TYPE#ROOM``). One row type here is one Postgres table there.
 """
 
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from pydantic import BaseModel, computed_field
 
@@ -29,7 +29,7 @@ class Row(BaseModel):
     thread_id: str
     checkpoint_ns: str
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def pk(self) -> str:
         return thread_key(self.thread_id)
@@ -58,7 +58,7 @@ class CheckpointRow(Row):
     def scan_prefix(cls, checkpoint_ns: str | None) -> str:
         return f'{cls.prefix}#' if checkpoint_ns is None else f'{cls.prefix}#{checkpoint_ns}#'
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def sk(self) -> str:
         return self.sort_key(self.checkpoint_ns, self.checkpoint_id)
@@ -75,10 +75,10 @@ class BlobRow(Row):
     value: bytes
 
     @classmethod
-    def sort_key(cls, checkpoint_ns: str, channel: str, version: Any) -> str:
+    def sort_key(cls, checkpoint_ns: str, channel: str, version: str | int | float) -> str:
         return f'{cls.prefix}#{checkpoint_ns}#{channel}#{version}'
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def sk(self) -> str:
         return self.sort_key(self.checkpoint_ns, self.channel, self.version)
@@ -106,7 +106,7 @@ class WriteRow(Row):
         """Every write belonging to one checkpoint."""
         return f'{cls.prefix}#{checkpoint_ns}#{checkpoint_id}#'
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def sk(self) -> str:
         return self.sort_key(self.checkpoint_ns, self.checkpoint_id, self.task_id, self.idx)

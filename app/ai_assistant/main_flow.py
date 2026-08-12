@@ -27,7 +27,7 @@ class DeferProvider:
     """Non-blocking human-feedback provider: instead of reading the console, it pauses
     the flow so a later HTTP request (via ``resume_async``) can deliver the reply."""
 
-    def request_feedback(self, context: PendingFeedbackContext, flow: Flow):
+    def request_feedback(self, context: PendingFeedbackContext, flow: Flow) -> None:
         raise HumanFeedbackPending(context=context)
 
 
@@ -37,12 +37,12 @@ class UniversityAssistantFlow(Flow[AssistantState]):
     # A bare underscore annotation makes pydantic treat it as a private attr, not a field.
     _service: MainFlowService
 
-    def __init__(self, service: MainFlowService, **kwargs):
+    def __init__(self, service: MainFlowService, **kwargs: object) -> None:
         super().__init__(**kwargs)
         self._service = service
 
     @start()
-    def receive_question(self):
+    def receive_question(self) -> None:
         # question / session_id / documents arrive via kickoff(inputs=...) and are bound
         # straight into state by CrewAI before this runs, so there is nothing to unpack here —
         # this @start just anchors the flow entry that route_intent branches from.
@@ -59,7 +59,7 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         return intent
 
     @listen('compare')
-    async def compare_programs(self):
+    async def compare_programs(self) -> None:
         # Delegate to the standalone fan-out/fan-in sub-flow, then adopt its answer.
         logger.info('Comparing programs for: %s', self.state.question)
         sub = CompareProgramsFlow()
@@ -67,14 +67,14 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         self.state.answer = sub.state.answer
 
     @listen('verify')
-    async def verify_documents(self):
+    async def verify_documents(self) -> None:
         # Single vision call: the LLM judges all documents at once and returns the message.
         logger.info('Verifying %d document(s)', len(self.state.documents))
         verdict = await verify(self.state.documents)
         self.state.answer = verdict.message
 
     @listen('qa')
-    async def answer_question(self):
+    async def answer_question(self) -> None:
         logger.info('Answering: %s', self.state.question)
         result = (
             await UniversityCrew()
@@ -92,7 +92,7 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         default_outcome='reject',
     )
     @listen(or_('booking', 'change'))
-    async def propose_booking(self):
+    async def propose_booking(self) -> str:
         request = self._build_proposal_request()
         logger.info('Proposing a consultation slot for: %s', request)
 
@@ -132,7 +132,7 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         return request
 
     @listen('approve')
-    async def do_book(self):
+    async def do_book(self) -> None:
         # The human approved -> the write is done here, deterministically, by code.
         feedback = self.last_human_feedback
         user_message = feedback.feedback if feedback else self.state.question
@@ -156,7 +156,7 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         logger.info('Booked slot %s: %s', proposed.slot_id, booked)
 
     @listen('reject')
-    async def do_reject(self):
+    async def do_reject(self) -> None:
         feedback = self.last_human_feedback
         user_message = feedback.feedback if feedback else self.state.question
         self.state.answer = await self._service.phrase(
@@ -166,7 +166,7 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         logger.info('Booking rejected for slot %s', self.state.proposed.slot_id if self.state.proposed else None)
 
     @listen('cancel')
-    async def cancel_booking(self):
+    async def cancel_booking(self) -> None:
         # Cancel the slots this session booked. The write is plain code, like booking.
         bookings = SESSION_BOOKINGS.get(self.state.session_id, [])
         cancelled: list[ProposedSlot] = []
@@ -191,5 +191,5 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         logger.info('Cancelled slots %s for session %s', [s.slot_id for s in cancelled], self.state.session_id)
 
     @listen(or_(answer_question, do_book, do_reject, cancel_booking, compare_programs, verify_documents))
-    def show_answer(self):
+    def show_answer(self) -> None:
         logger.info('Answer: %s', self.state.answer)

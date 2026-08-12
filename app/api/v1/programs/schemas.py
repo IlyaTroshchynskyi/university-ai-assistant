@@ -23,12 +23,12 @@ class Program(ProgramCreate):
 class ProgramItem(TableItem, ProgramCreate):
     entity: ClassVar[str] = 'PROGRAM'
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def gsi1pk(self) -> str:
         return f'{FacultyItem.entity}#{self.faculty_id}'
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def gsi1sk(self) -> str:
         return f'{self.entity}#{self.name}'
@@ -47,12 +47,12 @@ class ProgramNameItem(BaseModel):
     def key(cls, faculty_id: str, name: str) -> dict[str, str]:
         return {'pk': f'{cls.entity}#{faculty_id}#{normalize_name(name)}', 'sk': cls.unique_sk}
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def pk(self) -> str:
         return self.key(self.faculty_id, self.name)['pk']
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def sk(self) -> str:
         return self.unique_sk

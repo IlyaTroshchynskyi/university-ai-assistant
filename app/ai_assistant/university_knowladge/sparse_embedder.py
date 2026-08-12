@@ -17,7 +17,7 @@ Docs:
 import asyncio
 from functools import lru_cache
 
-from fastembed import SparseTextEmbedding
+from fastembed import SparseEmbedding, SparseTextEmbedding
 from qdrant_client import models
 
 from app.settings import get_settings
@@ -47,7 +47,7 @@ class SparseEmbedder:
         return [self._to_sparse_vector(e) for e in self._model.query_embed(text)][0]
 
     @staticmethod
-    def _to_sparse_vector(embedding) -> models.SparseVector:
+    def _to_sparse_vector(embedding: SparseEmbedding) -> models.SparseVector:
         """Convert a FastEmbed ``SparseEmbedding`` (numpy indices/values) into the Qdrant type."""
         return models.SparseVector(indices=embedding.indices.tolist(), values=embedding.values.tolist())
 

@@ -104,7 +104,7 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
             )
         return self._table
 
-    def get_next_version(self, current: str | None, channel: None) -> str:
+    def get_next_version(self, current: str | int | None, channel: None) -> str:
         """The next version of a channel: an ordered counter plus a random tail.
 
         The base class would answer ``current + 1``, and that is not safe here. A blob row is keyed
@@ -314,7 +314,7 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
         table = self.table
 
         payload = checkpoint.copy()
-        values: dict[str, Any] = payload.pop('channel_values')  # type: ignore[misc]
+        values: dict[str, Any] = payload.pop('channel_values')
 
         # Only the channels that changed this superstep. Everything else stays where it is, and the
         # new checkpoint's channel_versions goes on pointing at those older blob rows.
