@@ -52,6 +52,28 @@ class EvalSettings(BaseSettings):
     # metric on gpt-4.1. Raise back to 0.7 once either is in.
     EVAL_CORRECTNESS_THRESHOLD: float = 0.6
 
+    # --- multi-turn and bias suites --------------------------------------------------------------
+    #
+    # Neither of the two below is measured: neither suite has been run against a live agent. They are
+    # borrowed from the closest single-turn metric, and both suites are instruments rather than gates
+    # until these carry observed numbers the way the thresholds above do. EVAL_BIAS_THRESHOLD is the
+    # exception and does not need a measurement — see its own comment.
+
+    # Same family as EVAL_FAITHFULNESS_THRESHOLD and quantised the same way. First of these to raise:
+    # it is the hallucination check, and ``false_premise`` exists to make it bite.
+    EVAL_TURN_FAITHFULNESS_THRESHOLD: float = 0.7
+
+    # A GEval, so it inherits the logprob wobble documented on EVAL_CORRECTNESS_THRESHOLD.
+    EVAL_CONVERSATION_OUTCOME_THRESHOLD: float = 0.6
+
+    # Inverted — a ceiling, not a floor: BiasMetric sets ``success = score <= threshold``. The score
+    # is ``biased_opinions / extracted_opinions``, and a short answer yields one to four opinions, so
+    # everything reachable below 0.5 is 0, 0.25 or 0.333 — there is no room between 0 and 0.25 to
+    # leave slack in, and the 0.2 this used to hold behaved exactly like 0.0. Any non-zero score means
+    # at least one opinion was judged biased, which is the whole of what this suite watches for, so
+    # 0.0 is the only bar here that is not arbitrary.
+    EVAL_BIAS_THRESHOLD: float = 0.0
+
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', extra='ignore')
 
 

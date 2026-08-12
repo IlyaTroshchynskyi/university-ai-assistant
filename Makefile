@@ -36,3 +36,9 @@ eval-routing:
 # something like "Timetable".
 eval-tables:
 	pytest tests/integration --run-eval --log-cli-level=INFO -m tables -v
+
+eval-multiturn:
+	pytest tests/integration/test_agent_multiturn_eval.py --run-eval --log-cli-level=INFO -v
+
+eval-safety:
+	pytest tests/integration/test_safety_eval.py --run-eval --log-cli-level=INFO -v

@@ -241,17 +241,20 @@ make test-checkpointer   # the saver's own suite; needs the local DynamoDB up
 
 ## Evaluating the RAG pipeline
 
-Three suites under `tests/integration`. Two of them score the assistant against 23 hand-written
-goldens with DeepEval: one measures the retriever on its own (`KnowledgeService.search`, production
-defaults), the other measures the answer `POST /langchain-assistant` gives. The third asserts
-*routing* — which of `retriever`, `find_person`, `find_place` a question sends the agent to.
+Five suites under `tests/integration`, each measuring one layer. Two score the assistant against 23
+hand-written goldens with DeepEval: one measures the retriever on its own (`KnowledgeService.search`,
+production defaults), the other measures the answer `POST /langchain-assistant` gives. A third
+asserts *routing* — which of `retriever`, `find_person`, `find_place` a question sends the agent to.
+The last two are conversational and behavioural, and are described under their own heading below.
 
 ```bash
-make eval            # all three
+make eval            # everything
 make eval-retriever  # retrieval only, no agent call
 make eval-agent      # the answers
 make eval-routing    # tool choice — no judges, no Qdrant, cheapest by far
 make eval-tables     # the goldens whose answers live inside tables
+make eval-multiturn  # four scripted conversations, scored whole
+make eval-safety     # four questions written to invite a biased opinion
 ```
 
 **It calls the real OpenAI API and costs money.** A plain `pytest` never does — the suites are
@@ -265,12 +268,16 @@ Before the first run:
   un-ingested collection does not show up as 41 failing metrics. Populate it via `POST /documents`.
   `make eval-routing` needs neither — it stubs both tool backends out.
 - **Have Qdrant up** (`QDRANT_URL`, default `http://localhost:6333`).
-- **No DynamoDB needed** — and that is deliberate. The session points `DYNAMODB_*_TABLE` at
-  `*_test` tables that nothing creates during an eval run, and a failing tool does not raise: the
-  agent's `ToolNode` catches it and hands the model an error message, so the answer degrades
-  quietly instead of turning red. The agent goldens are therefore kept off `find_person` and
-  `find_place` — 17 and 18 ask for campus opening hours and are retriever-only since 2026-08-11.
-  Their routing is asserted by `make eval-routing`, which stubs both backends.
+- **Have the local DynamoDB up** for every suite that executes the graph — `eval-agent`,
+  `eval-routing`, `eval-multiturn`, `eval-safety`. This became a requirement when the agent's
+  checkpointer moved to DynamoDB: those suites create the `*_test` tables and hold one client open
+  for the session. `eval-retriever` calls `KnowledgeService.search` directly, runs no graph and
+  needs no DynamoDB.
+  The single-turn agent goldens still avoid `find_person` and `find_place` — 17 and 18 ask for campus
+  opening hours and are retriever-only since 2026-08-11 — because a failing tool does not raise: the
+  agent's `ToolNode` catches it and hands the model an error message, so the answer degrades quietly
+  instead of turning red. `make eval-multiturn` is the exception and seeds the two records it looks
+  up; `make eval-routing` stubs both backends and needs neither Qdrant nor real rows.
 - **Optionally set `EVAL_MODEL_API_KEY`** in `.env` to bill the judge separately. Leave it unset
   and the judge uses `OPENAI_API_KEY`, same as the app.
 
@@ -280,6 +287,37 @@ judge, and the spread between runs is wider than the gap between a good answer a
 Read the score table `--log-cli-level=INFO` prints, and the module docstrings of both suites, which
 record which goldens sit near a threshold. Full design and measurement history:
 [`docs/superpowers/specs/2026-08-07-rag-evaluation-design.md`](docs/superpowers/specs/2026-08-07-rag-evaluation-design.md).
+
+### Conversations and bias
+
+```bash
+make eval-multiturn  # four scripted conversations
+make eval-safety     # four bias probes
+```
+
+`eval-multiturn` posts four conversations through `/langchain-assistant`, each on one `user_id`, and
+scores them as whole dialogues on `TurnFaithfulness` and a custom `Outcome` judge. Every
+conversation is built so at least one turn is unanswerable alone ("his office hours", "that whole
+amount"), which is what makes it a memory measurement rather than three goldens run back to back.
+
+**It is not a regression gate on the checkpointer.** That mechanism is already covered, free and
+deterministically, by `tests/api/test_chat_checkpointer.py`. What only this suite sees is how the
+*model* uses history, which changes with the prompt and the model — so run it after those change,
+not per commit. No assertion is made about which tool a turn called: answering a follow-up from
+history or by calling the tool again are both acceptable.
+
+`eval-safety` asks four questions written to invite an opinion about a group of people — one per axis
+of `BiasMetric`'s rubric, which is gender, political, racial/ethnic and geographical. A question off
+that list is not worth asking here: the judge is shown only those four axes, so an answer biased on
+any other one scores 0.000 and passes. **Its score also runs the other way round:** `BiasMetric`
+passes when the score is *at or below* the threshold, so 0.000 is clean. An answer containing no
+opinions scores 0 by construction, and the agent is expected to score 0.000 on all four today — so a
+green run means it volunteered no opinions, not that it is unbiased. It is a drift guard.
+
+Thresholds for both are provisional: neither suite has been run against a live agent yet, and
+`config.py` marks each new threshold as unmeasured. Until several runs on unchanged code produce a
+spread, read the score table rather than the colour. Design:
+[`docs/superpowers/specs/2026-08-11-multiturn-agent-evaluation-design.md`](docs/superpowers/specs/2026-08-11-multiturn-agent-evaluation-design.md).
 
 ## Understanding the project
 

@@ -424,7 +424,8 @@ Read in this order — the first three cover everything the suites do.
 
 | Where | What you get from it |
 |---|---|
-| `tests/integration/conftest.py` | `retriever_metrics()` / `agent_metrics(has_context)` — already built, just call them. Plus `assert_metrics`, which measures, logs the table and asserts, and the autouse preflight |
+| `tests/integration/metrics.py` | `retriever_metrics()` / `agent_metrics(has_context)` — already built, just call them. Plus `assert_metrics`, which measures, logs the table and asserts |
+| `tests/integration/conftest.py` | fixtures only: the autouse preflight and the session-scoped checkpointer |
 | `tests/integration/config.py` | `get_eval_settings()` — the judge model and every threshold, each with the measurements that set it |
 | `tests/integration/goldens.py` | `golden_params(Layer.RETRIEVER \| Layer.AGENT)` — parametrize on this, not on `load_goldens`, or the node ids lose the golden id |
 | `tests/conftest.py:72`, `:82`, `:129` | The `app` and `not_auth_client` session fixtures and `TestBaseClientClass`, which hands `self.not_auth_client` to the test |
