@@ -43,8 +43,8 @@ from deepeval.test_case import LLMTestCase
 import pytest
 
 from app.ai_assistant.university_knowladge.knowledge_service import get_knowledge_service
-from tests.integration.conftest import assert_metrics, retriever_metrics
 from tests.integration.goldens import golden_params, GoldenCase, Layer
+from tests.integration.metrics import assert_metrics, retriever_metrics
 
 # Session loop, for the same reason as the agent suite: ``get_qdrant_client`` and the OpenAI
 # client behind ``get_embedder`` are cached singletons, so the first case binds them to whatever

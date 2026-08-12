@@ -12,6 +12,7 @@ from app.settings import get_settings
 from tests.db_utils import university_service
 from tests.factories.group_factory import GroupRow
 from tests.factories.program_factory import ProgramCreationFactory
+from tests.factories.university_rows_factory import PlaceFactory, PlaceRow, ProfessorFactory, ProfessorRow
 
 
 async def create_test_room(creation: CreateRoom, db_client: DynamoDBClient) -> Room:
@@ -43,3 +44,17 @@ async def create_test_group_row(program_id: str, db_client: DynamoDBClient) -> G
     group = GroupRow(gsi1pk=f'PROGRAM#{program_id}')
     await university_service(db_client).put_item(group)
     return group
+
+
+async def create_test_professor_row(db_client: DynamoDBClient, **overrides: str | int) -> ProfessorRow:
+    """Seed the professor the multi-turn evaluation asks about."""
+    row = ProfessorRow.from_entity(ProfessorFactory.build(**overrides))
+    await university_service(db_client).put_item(row)
+    return row
+
+
+async def create_test_place_row(db_client: DynamoDBClient, **overrides: str | int) -> PlaceRow:
+    """Seed the campus place the multi-turn evaluation asks about."""
+    row = PlaceRow.from_entity(PlaceFactory.build(**overrides))
+    await university_service(db_client).put_item(row)
+    return row

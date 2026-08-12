@@ -13,13 +13,19 @@ from qdrant_client.models import ScoredPoint
 
 from app.ai_assistant_langchain.agent import create_assistant_agent
 from app.core.dynamodb.schemas import Place, Professor
-from tests.conftest import TestBaseAgentClass
-from tests.integration.conftest import assert_metrics, routing_metrics
+from tests.conftest import TestBaseClientClass
+from tests.integration.metrics import assert_metrics, routing_metrics
 
 # Session loop for the same reason as the agent suite: the tests drive the app through the
 # session-scoped ``not_auth_client``, and the agent's cached clients bind to whatever loop the
 # first call ran on.
-pytestmark = [pytest.mark.evaluation, pytest.mark.asyncio(loop_scope='session')]
+# ``eval_checkpointer`` but not ``knowledge_base_populated``: both tool backends are stubbed, so
+# nothing here reaches Qdrant — but the graph still runs, and the graph still writes checkpoints.
+pytestmark = [
+    pytest.mark.evaluation,
+    pytest.mark.asyncio(loop_scope='session'),
+    pytest.mark.usefixtures('eval_checkpointer'),
+]
 
 ENDPOINT = '/langchain-assistant'
 PATH_TO_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.tools.get_knowledge_service'
@@ -97,7 +103,7 @@ async def get_called_tools(user_id: str) -> list[ToolCall]:
     return called_tools
 
 
-class TestToolRouting(TestBaseAgentClass):
+class TestToolRouting(TestBaseClientClass):
     @pytest.fixture(autouse=True)
     def _stub_tool_backends(self) -> Generator[None, None, None]:
         with (

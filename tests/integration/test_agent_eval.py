@@ -40,9 +40,9 @@ import pytest
 
 from app.ai_assistant.university_knowladge.knowledge_service import NO_RESULTS
 from app.ai_assistant_langchain.agent import create_assistant_agent
-from tests.conftest import TestBaseAgentClass
-from tests.integration.conftest import agent_metrics, assert_metrics
+from tests.conftest import TestBaseClientClass
 from tests.integration.goldens import golden_params, GoldenCase, Layer
+from tests.integration.metrics import agent_metrics, assert_metrics
 
 # The suite drives the app through the session-scoped ``not_auth_client``, so the test has to run
 # on the session loop too. Left on the default function loop it hangs: the client and the agent's
@@ -50,7 +50,7 @@ from tests.integration.goldens import golden_params, GoldenCase, Layer
 pytestmark = [
     pytest.mark.evaluation,
     pytest.mark.asyncio(loop_scope='session'),
-    pytest.mark.usefixtures('knowledge_base_populated'),
+    pytest.mark.usefixtures('eval_checkpointer', 'knowledge_base_populated'),
 ]
 
 ENDPOINT = '/langchain-assistant'
@@ -67,7 +67,7 @@ async def retrieved_chunks(user_id: str) -> list[str]:
     ]
 
 
-class TestAgent(TestBaseAgentClass):
+class TestAgent(TestBaseClientClass):
     @pytest.mark.parametrize('golden', GOLDENS)
     async def test_agent_answer(self, golden: GoldenCase) -> None:
         user_id = str(uuid.uuid4())
