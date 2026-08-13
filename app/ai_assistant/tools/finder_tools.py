@@ -3,7 +3,8 @@ import logging
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from app.core.dynamodb.university_repository import open_university_repository
+from app.api.v1.places.places_repository import open_places_repository
+from app.api.v1.professors.professors_repository import open_professors_repository
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class FindPersonTool(BaseTool):
 
     async def _run(self, name: str) -> list[dict] | str:
         """Look up professors by name."""
-        async with open_university_repository() as repo:
+        async with open_professors_repository() as repo:
             professors = await repo.find_professors_by_name(name)
 
         logger.info('FindPerson %r -> %s', name, f'{len(professors)} match(es)' if professors else 'none')
@@ -56,7 +57,7 @@ class FindPlaceTool(BaseTool):
 
     async def _run(self, name: str) -> dict | str:
         """Look up a campus place (building, floor, opening hours) by name."""
-        async with open_university_repository() as repo:
+        async with open_places_repository() as repo:
             place = await repo.find_place_by_name(name)
 
         logger.info('FindPlace %r -> %s', name, place.name if place else 'none')

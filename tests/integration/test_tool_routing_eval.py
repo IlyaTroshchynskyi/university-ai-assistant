@@ -29,7 +29,8 @@ pytestmark = [
 
 ENDPOINT = '/langchain-assistant'
 PATH_TO_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.tools.get_knowledge_service'
-PATH_TO_UNIVERSITY_REPOSITORY = 'app.ai_assistant_langchain.tools.open_university_repository'
+PATH_TO_PROFESSORS_REPOSITORY = 'app.ai_assistant_langchain.tools.open_professors_repository'
+PATH_TO_PLACES_REPOSITORY = 'app.ai_assistant_langchain.tools.open_places_repository'
 
 
 @dataclass
@@ -75,20 +76,29 @@ class StubKnowledgeService:
         return [ScoredPoint(id=1, version=0, score=1.0, payload={'text': PASSAGE})]
 
 
-class StubUniversityRepository:
+class StubProfessorsRepository:
     """Answers every lookup with a match, whatever the name. A miss would send the model looking
     for a second tool, and the fallback path is not what this suite measures."""
 
     async def find_professors_by_name(self, name: str) -> list[Professor]:
         return [PROFESSOR]
 
+
+class StubPlacesRepository:
+    """The place half of the same idea — two stubs now that the two lookups read two tables."""
+
     async def find_place_by_name(self, name: str) -> Place:
         return PLACE
 
 
 @asynccontextmanager
-async def stub_repository() -> AsyncGenerator[StubUniversityRepository, None]:
-    yield StubUniversityRepository()
+async def stub_professors_repository() -> AsyncGenerator[StubProfessorsRepository, None]:
+    yield StubProfessorsRepository()
+
+
+@asynccontextmanager
+async def stub_places_repository() -> AsyncGenerator[StubPlacesRepository, None]:
+    yield StubPlacesRepository()
 
 
 async def get_called_tools(user_id: str) -> list[ToolCall]:
@@ -108,7 +118,8 @@ class TestToolRouting(TestBaseClientClass):
     def _stub_tool_backends(self) -> Generator[None, None, None]:
         with (
             patch(PATH_TO_KNOWLEDGE_SERVICE, return_value=StubKnowledgeService()),
-            patch(PATH_TO_UNIVERSITY_REPOSITORY, stub_repository),
+            patch(PATH_TO_PROFESSORS_REPOSITORY, stub_professors_repository),
+            patch(PATH_TO_PLACES_REPOSITORY, stub_places_repository),
         ):
             yield
 

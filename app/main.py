@@ -14,7 +14,7 @@ from app.api.v1.programs.router import router as program_router
 from app.api.v1.rooms.router import router as rooms_router
 from app.core.dynamodb.schemas import Slot, SlotStatus
 from app.core.dynamodb.slots_repository import open_slots_repository
-from app.core.execption_handler import include_exception_handlers
+from app.core.exception_handler import include_exception_handlers
 from app.lifespan import lifespan
 
 LOG_FORMAT = '%(asctime)s:%(levelname)s:%(module)s:[%(filename)s:%(lineno)d]:%(funcName)s:%(message)s'

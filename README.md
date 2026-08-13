@@ -191,13 +191,24 @@ The `user_id` you post is the thread key. Reuse it and the agent replays that co
 
 ```bash
 docker compose up -d dynamodb
-uv run python db/load_dynamodb.py          # creates agent_checkpoints among the other tables
+make seed                                  # creates agent_checkpoints among the other tables
 make run_app
 ```
 
-Re-running the seed loader is safe for conversations: it wipes and refills the three reference
-tables, but `agent_checkpoints` is created only when missing and is otherwise left untouched — its
-rows are people's histories, and nothing can rebuild them.
+Re-running the seed loader is safe for conversations: it wipes and refills the reference tables, but
+`agent_checkpoints` is created only when missing and is otherwise left untouched — its rows are
+people's histories, and nothing can rebuild them.
+
+The reference data is one table per entity — `faculties`, `programs`, `professors`, `courses`,
+`rooms`, `places`, `academic_groups` — plus `appointment_slots` and `reported_issues`. Why they are
+split that way, and why groups and their schedule rows are the one pair that stayed together, is
+`db/03-table-split.md`.
+
+A faculty carries a `dependants` counter of the programmes, professors and courses filed under it,
+and a programme one of its groups; `DELETE` refuses on it rather than on a prior read. If a counter
+ever drifts out of step with the tables — a row deleted outside the API, say — the parent becomes
+undeletable, and the fix is another `make seed`: everything here is regenerable, so there is nothing
+a repair-in-place would save.
 
 ```bash
 

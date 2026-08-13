@@ -40,12 +40,19 @@ class Slot(BaseModel):
     expires_at: int | None = None  # epoch seconds — TTL attribute
 
 
+# Every action below carries an optional ``table``. ``TransactWriteItems`` is not scoped to one
+# table — it spans any table in the region — but ``DynamoDBService`` is, so an action naming its own
+# table is how a repository reaches outside its own. Left unset it means 'the service's table',
+# which is what all but the counter-maintaining actions want.
+
+
 @dataclass(frozen=True, slots=True)
 class TransactPut:
     """A 'write this item' step of a transaction, with the condition guarding it."""
 
     item: BaseModel
     condition: ConditionBase | None = None
+    table: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +61,7 @@ class TransactDelete:
 
     key: dict[str, Any]
     condition: ConditionBase | None = None
+    table: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +78,20 @@ class TransactConditionCheck:
 
     key: dict[str, Any]
     condition: ConditionBase
+    table: str | None = None
 
 
-TransactAction = TransactPut | TransactDelete | TransactConditionCheck
+@dataclass(frozen=True, slots=True)
+class TransactUpdate:
+    """An 'apply this update expression' step of a transaction — how a counter on another item is
+    maintained atomically with the write that changes it."""
+
+    key: dict[str, Any]
+    update_expression: str
+    expression_values: dict[str, Any]
+    expression_names: dict[str, str] | None = None
+    condition: ConditionBase | None = None
+    table: str | None = None
+
+
+TransactAction = TransactPut | TransactDelete | TransactConditionCheck | TransactUpdate

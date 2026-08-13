@@ -1,13 +1,14 @@
+from operator import attrgetter
 from typing import Annotated
 
-from boto3.dynamodb.conditions import Attr, Key
+from boto3.dynamodb.conditions import Attr
 from fastapi import Depends
 from types_aiobotocore_dynamodb import DynamoDBClient
 
 from app.api.v1.rooms.schemas import CreateRoom, Room, RoomItem
 from app.core.dynamodb.base_service import DynamoDBService
 from app.core.dynamodb.client import get_dynamo_client
-from app.core.dynamodb.indexes import Index, KeyAttr
+from app.core.dynamodb.indexes import KeyAttr
 from app.settings import get_settings, Settings
 
 
@@ -17,7 +18,7 @@ class RoomsRepository(DynamoDBService):
         dynamo_db_client: Annotated[DynamoDBClient, Depends(get_dynamo_client)],
         settings: Annotated[Settings, Depends(get_settings)],
     ) -> None:
-        super().__init__(dynamo_db_client, settings.DYNAMODB_UNIVERSITY_TABLE)
+        super().__init__(dynamo_db_client, settings.DYNAMODB_ROOMS_TABLE)
 
     async def create_room(self, creation: CreateRoom) -> Room:
         """Store a new room under a freshly minted id, and return it as the API sees it."""
@@ -31,11 +32,7 @@ class RoomsRepository(DynamoDBService):
         return Room(**row) if row is not None else None
 
     async def delete_room(self, room_id: str) -> bool:
-        """Delete the room, reporting whether it was there to delete.
-
-        DeleteItem succeeds on a key that doesn't exist, so the condition is what tells the two
-        cases apart — and it does so within the delete itself, rather than in a read beforehand
-        that another request could invalidate."""
+        """Delete the room, reporting whether it was there to delete."""
         try:
             await self.delete_item(RoomItem.key(room_id), condition=Attr(KeyAttr.PK).exists())
         except self._client.exceptions.ConditionalCheckFailedException:
@@ -43,9 +40,6 @@ class RoomsRepository(DynamoDBService):
         return True
 
     async def list_rooms(self) -> list[Room]:
-        """Every room, ordered by building and door number.
-
-        A query over GSI1's constant ``TYPE#ROOM`` partition rather than a scan: the index holds
-        rooms only, so nothing else in the single table is read, let alone filtered out afterwards."""
-        rows = await self.query(Key(KeyAttr.GSI1_PK).eq(f'TYPE#{RoomItem.entity}'), index_name=Index.GSI1)
-        return [Room(**row) for row in rows]
+        """Every room, ordered by building and door number."""
+        rows = await self.scan(filter_expression=Attr(KeyAttr.SK).eq(RoomItem.meta_sk))
+        return sorted((Room(**row) for row in rows), key=attrgetter('building', 'number'))

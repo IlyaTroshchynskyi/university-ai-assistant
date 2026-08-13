@@ -1,10 +1,13 @@
 from app.api.v1.faculty.schemas import FacultyItem
 from tests.conftest import TestBaseClientDBClass
-from tests.factories.factory_creators import create_test_faculty, create_test_program, create_test_room
+from tests.factories.factory_creators import create_test_faculty, create_test_program
 from tests.factories.factory_deleters import delete_test_faculty
-from tests.factories.factory_getters import get_test_faculty, get_test_faculty_name_reservation
+from tests.factories.factory_getters import (
+    get_test_faculty,
+    get_test_faculty_dependants,
+    get_test_faculty_name_reservation,
+)
 from tests.factories.faculty_factory import FacultyCreationFactory
-from tests.factories.rooms_factory import RoomCreationFactory
 
 
 class TestFaculties(TestBaseClientDBClass):
@@ -67,9 +70,12 @@ class TestFaculties(TestBaseClientDBClass):
         # by name before comparing.
         assert sorted(f['name'] for f in response.json()) == sorted([faculty1.name, faculty2.name])
 
-    async def test_list_faculties_skips_other_entities(self) -> None:
+    async def test_list_faculties_skips_name_reservations(self) -> None:
+        """The reservation row shares the table with the faculty it reserves, so the listing has to
+        step over it — the same ``#UNIQUE``/``#META`` split every entity table uses."""
         faculty = await create_test_faculty(FacultyCreationFactory.build(), self.dynamo_client)
-        await create_test_room(RoomCreationFactory.build(), self.dynamo_client)
+        reservation = await get_test_faculty_name_reservation(faculty.name, self.dynamo_client)
+        assert reservation is not None, 'the fixture is meaningless if no reservation was written'
 
         response = await self.not_auth_client.get('/faculties')
 
@@ -94,6 +100,8 @@ class TestFaculties(TestBaseClientDBClass):
         assert await get_test_faculty_name_reservation(faculty.name, self.dynamo_client) is None
 
     async def test_delete_faculty_with_dependants(self) -> None:
+        """The programme is created through the API, because that is what maintains the counter the
+        delete refuses on. A programme row written directly would leave the faculty deletable."""
         created = await create_test_faculty(FacultyCreationFactory.build(), self.dynamo_client)
         await create_test_program(created.id, self.dynamo_client)
 
@@ -104,6 +112,29 @@ class TestFaculties(TestBaseClientDBClass):
             'detail': f'Faculty with id = {created.id} still has programs, professors or courses'
         }
         assert await get_test_faculty(created.id, self.dynamo_client) is not None
+
+    async def test_creating_a_program_counts_it_on_its_faculty(self) -> None:
+        created = await create_test_faculty(FacultyCreationFactory.build(), self.dynamo_client)
+        assert await get_test_faculty_dependants(created.id, self.dynamo_client) == 0
+
+        await create_test_program(created.id, self.dynamo_client)
+        await create_test_program(created.id, self.dynamo_client)
+
+        assert await get_test_faculty_dependants(created.id, self.dynamo_client) == 2
+
+    async def test_deleting_the_last_program_re_permits_deleting_its_faculty(self) -> None:
+        """The counter has to come back down, or the 409 above becomes permanent: a faculty that
+        once had a programme would stay undeletable after the programme was gone."""
+        created = await create_test_faculty(FacultyCreationFactory.build(), self.dynamo_client)
+        program = await create_test_program(created.id, self.dynamo_client)
+
+        assert (await self.not_auth_client.delete(f'/programs/{program.id}')).status_code == 204
+        assert await get_test_faculty_dependants(created.id, self.dynamo_client) == 0
+
+        response = await self.not_auth_client.delete(f'/faculties/{created.id}')
+
+        assert response.status_code == 204
+        assert await get_test_faculty(created.id, self.dynamo_client) is None
 
     async def test_delete_faculty_missing(self) -> None:
         response = await self.not_auth_client.delete('/faculties/no-such-id')

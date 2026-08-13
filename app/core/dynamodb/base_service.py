@@ -17,7 +17,13 @@ from types_aiobotocore_dynamodb import DynamoDBClient
 from types_aiobotocore_dynamodb.type_defs import TransactWriteItemTypeDef
 
 from app.core.dynamodb.indexes import Index
-from app.core.dynamodb.schemas import TransactAction, TransactConditionCheck, TransactDelete, TransactPut
+from app.core.dynamodb.schemas import (
+    TransactAction,
+    TransactConditionCheck,
+    TransactDelete,
+    TransactPut,
+    TransactUpdate,
+)
 
 Item = TypeVar('Item', bound=BaseModel)
 
@@ -33,6 +39,7 @@ _TRANSACT_MEMBER: dict[type, str] = {
     TransactPut: 'Put',
     TransactDelete: 'Delete',
     TransactConditionCheck: 'ConditionCheck',
+    TransactUpdate: 'Update',
 }
 
 
@@ -140,18 +147,34 @@ class DynamoDBService:
 
         A ``TransactConditionCheck`` writes nothing — it only asserts something about a row the
         transaction leaves alone (that a parent still exists, say). It still counts as one of the
-        100 actions, and its position still shows up in ``get_failed_condition_indexes``."""
+        100 actions, and its position still shows up in ``get_failed_condition_indexes``.
+
+        The transaction is **not confined to this service's table**: an action carrying a ``table``
+        of its own is sent against that one instead, which is how a repository maintains a counter
+        on a row belonging to another entity (``ProgramsRepository`` and the faculty's
+        ``dependants``) without a second service or a second, non-atomic write."""
         transact_items: list[TransactWriteItemTypeDef] = []
         for action in actions:
-            entry: dict[str, Any] = {'TableName': self._table_name}
+            entry: dict[str, Any] = {'TableName': action.table or self._table_name}
+            # One name/value namespace per entry: an update's own placeholders and the condition's
+            # generated ones (#n0/:v0) end up in the same two maps, so they are collected here
+            # rather than attached twice.
+            names: dict[str, str] = {}
+            values: dict[str, Any] = {}
             if isinstance(action, TransactPut):
                 entry['Item'] = self._serialize(action.item.model_dump())
             else:
                 entry['Key'] = self._serialize(action.key)
+            if isinstance(action, TransactUpdate):
+                entry['UpdateExpression'] = action.update_expression
+                names.update(action.expression_names or {})
+                values.update(self._serialize(action.expression_values))
             if action.condition is not None:
-                expr, names, values = self._build_condition(action.condition)
+                expr, c_names, c_values = self._build_condition(action.condition)
                 entry['ConditionExpression'] = expr
-                self._set_expressions(entry, names, values)
+                names.update(c_names)
+                values.update(c_values)
+            self._set_expressions(entry, names, values)
             transact_items.append({_TRANSACT_MEMBER[type(action)]: entry})  # type: ignore[misc]
 
         await self._client.transact_write_items(TransactItems=transact_items)

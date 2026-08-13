@@ -1,15 +1,17 @@
-"""Seed loader for the local DynamoDB (the model from 02-dynamodb-model.md).
+"""Seed loader for the local DynamoDB (the model from 02-dynamodb-model.md, split as 03-table-split.md).
 
-Three tables — not 'one for everything', but 'a few':
-  · university        — the academic core (single-table): faculty, program, group,
-                        professor, course, room, place, schedule;
+One table per entity, with one deliberate exception:
+  · faculties, programs, professors, courses, rooms, places — an entity each, a name
+                        reservation filed beside the entity that owns it;
+  · academic_groups   — groups *and* their schedule rows, the one pair a single query
+                        has to return together;
   · appointment_slots — independent, dated, with a TTL on expires_at;
   · reported_issues   — independent (student reports).
 
 What the script does:
-  1. (re)creates all three tables with their GSIs (+ enables TTL on appointment_slots);
+  1. (re)creates every table with its own GSI set (+ enables TTL on appointment_slots);
   2. reads db/seed/*.json and turns the records into items following the key maps;
-  3. loads everything in batches;
+  3. loads everything in batches, table by table;
   4. runs demo queries, to show the model in action.
 
 Running it (the local DynamoDB has to be up — docker compose up -d dynamodb):
@@ -48,10 +50,31 @@ REGION = os.getenv('AWS_REGION', 'us-east-1')
 ACCESS_KEY = os.getenv('AWS_ACCESS_KEY_ID', 'dummy')
 SECRET_KEY = os.getenv('AWS_SECRET_ACCESS_KEY', 'dummy')
 
-T_UNIVERSITY = os.getenv('DYNAMODB_TABLE', 'university')
+T_FACULTIES = os.getenv('DYNAMODB_FACULTIES_TABLE', 'faculties')
+T_PROGRAMS = os.getenv('DYNAMODB_PROGRAMS_TABLE', 'programs')
+T_PROFESSORS = os.getenv('DYNAMODB_PROFESSORS_TABLE', 'professors')
+T_COURSES = os.getenv('DYNAMODB_COURSES_TABLE', 'courses')
+T_ROOMS = os.getenv('DYNAMODB_ROOMS_TABLE', 'rooms')
+T_PLACES = os.getenv('DYNAMODB_PLACES_TABLE', 'places')
+T_GROUPS = os.getenv('DYNAMODB_GROUPS_TABLE', 'academic_groups')
 T_SLOTS = 'appointment_slots'
 T_ISSUES = 'reported_issues'
 T_CHECKPOINTS = os.getenv('DYNAMODB_CHECKPOINTS_TABLE', 'agent_checkpoints')
+
+# Which GSIs each table is created with. The seeder is the only place that knows the whole map, so
+# it is written once here rather than spelled out again at every ``recreate_table`` call.
+GSI_NAME_INDEX = ('GSI_NAME', 'gsi_name_pk', 'gsi_name_sk')
+TABLE_INDEXES: dict[str, tuple[list[int], list[tuple[str, str, str]]]] = {
+    T_FACULTIES: ([], []),  # listed by Scan; its name reservations are keyed, not indexed
+    T_PROGRAMS: ([1], []),  # P4 — a faculty's programmes
+    T_PROFESSORS: ([1], [GSI_NAME_INDEX]),  # P5 — a faculty's professors; P15 — search by name
+    T_COURSES: ([1, 2], []),  # P6 — a faculty's courses; P8 — a professor's courses
+    T_ROOMS: ([], []),  # listed by Scan
+    T_PLACES: ([], []),  # searched by Scan + contains (P14)
+    T_GROUPS: ([1, 2], []),  # P7/P2 share GSI1 here; P3 — a room's occupancy
+    T_SLOTS: ([1, 2], []),
+    T_ISSUES: ([1], []),
+}
 
 SEED_DIR = Path(__file__).parent / 'seed'
 
@@ -119,7 +142,12 @@ def _reject_duplicate_program_names(programs: list[dict[str, Any]]) -> None:
 
 
 # --- seed -> items transformation (following the key maps in 02-dynamodb-model.md) --------------
-def build_university_items() -> list[dict[str, Any]]:
+def build_items() -> dict[str, list[dict[str, Any]]]:
+    """Every seeded row, keyed by the table it belongs in.
+
+    A mapping rather than one flat list, because there is no longer one destination — and building
+    it in a single pass is what lets the dependant counters be computed from the same records that
+    produce the rows they count."""
     faculties = _load('faculties')
     programs = _load('programs')
     groups = _load('groups')
@@ -136,23 +164,39 @@ def build_university_items() -> list[dict[str, Any]]:
     _reject_duplicate_program_names(programs)
     faculty_id_by_name = {f['name']: f['id'] for f in faculties}
 
-    items: list[dict[str, Any]] = []
+    # The counters the delete guards read (`FacultyRepository.delete_faculty`). The API maintains
+    # them inside the transaction that creates or removes a child; the seeder writes with
+    # BatchWriteItem and bypasses the repositories entirely, so it has to count for itself. Getting
+    # this wrong is invisible until someone deletes a seeded faculty and orphans six programmes.
+    faculty_dependants = _count_faculty_dependants(programs, professors, courses, faculty_id_by_name)
+    program_dependants = Counter(str(g['program_id']) for g in groups)
 
+    faculty_items: list[dict[str, Any]] = []
     for f in faculties:
-        items.append({'pk': f'FACULTY#{f["id"]}', 'sk': '#META', 'entity_type': 'faculty', **_str_ids(f)})
+        faculty_items.append(
+            {
+                'pk': f'FACULTY#{f["id"]}',
+                'sk': '#META',
+                'entity_type': 'faculty',
+                'dependants': faculty_dependants[str(f['id'])],
+                **_str_ids(f),
+            }
+        )
         # The row reserving the name, written exactly as POST /faculties writes it. A seeded faculty
         # without one leaves its name free for the API to hand out a second time.
-        items.append(FacultyNameItem(name=f['name'], faculty_id=str(f['id'])).model_dump())
+        faculty_items.append(FacultyNameItem(name=f['name'], faculty_id=str(f['id'])).model_dump())
 
+    program_items: list[dict[str, Any]] = []
     for p in programs:
         fid = faculty_id_by_name[p['faculty']]
-        items.append(
+        program_items.append(
             {
                 'pk': f'PROGRAM#{p["id"]}',
                 'sk': '#META',
                 'gsi1pk': f'FACULTY#{fid}',
                 'gsi1sk': f'PROGRAM#{p["name"]}',
                 'entity_type': 'program',
+                'dependants': program_dependants[str(p['id'])],
                 'id': str(p['id']),
                 'name': p['name'],
                 'faculty_id': str(fid),
@@ -163,10 +207,13 @@ def build_university_items() -> list[dict[str, Any]]:
         )
         # The row reserving the programme's name, written exactly as POST /programs writes it. A
         # seeded programme without one leaves its name free for the API to hand out a second time.
-        items.append(ProgramNameItem(faculty_id=str(fid), name=p['name'], program_id=str(p['id'])).model_dump())
+        program_items.append(ProgramNameItem(faculty_id=str(fid), name=p['name'], program_id=str(p['id'])).model_dump())
 
+    # Groups and schedule share a table *and* a partition: a class is filed under its group's pk, so
+    # 'the group and its timetable' is one query (P1). The only colocation the split kept.
+    group_items: list[dict[str, Any]] = []
     for g in groups:
-        items.append(
+        group_items.append(
             {
                 'pk': f'GROUP#{g["id"]}',
                 'sk': '#META',
@@ -180,8 +227,25 @@ def build_university_items() -> list[dict[str, Any]]:
             }
         )
 
+    for s in schedule:  # one item serves P1 (group) / P2 (professor) / P3 (room)
+        wd = WEEKDAY_NUM[s['weekday']]
+        sched_sk = f'SCHED#{wd}#{s["start_time"]}'
+        group_items.append(
+            {
+                'pk': f'GROUP#{s["group_id"]}',
+                'sk': sched_sk,
+                'gsi1pk': f'PROF#{s["professor_id"]}',
+                'gsi1sk': sched_sk,
+                'gsi2pk': f'ROOM#{s["room_id"]}',
+                'gsi2sk': sched_sk,
+                'entity_type': 'schedule',
+                **_str_ids(s),
+            }
+        )
+
+    professor_items: list[dict[str, Any]] = []
     for pr in professors:
-        items.append(
+        professor_items.append(
             {
                 'pk': f'PROF#{pr["id"]}',
                 'sk': '#META',
@@ -196,9 +260,10 @@ def build_university_items() -> list[dict[str, Any]]:
             }
         )
 
+    course_items: list[dict[str, Any]] = []
     for c in courses:
         fid = faculty_id_by_name[c['faculty']]
-        items.append(
+        course_items.append(
             {
                 'pk': f'COURSE#{c["id"]}',
                 'sk': '#META',
@@ -214,52 +279,54 @@ def build_university_items() -> list[dict[str, Any]]:
             }
         )
 
-    for r in rooms:  # 'type' here is the room type, not to be confused with entity_type
-        items.append(
-            {
-                'pk': f'ROOM#{r["id"]}',
-                'sk': '#META',
-                # as with places: a constant GSI1 partition, so the whole room list takes a single
-                # query. Ordered by building + zero-padded door number (a sort key is a string).
-                'gsi1pk': 'TYPE#ROOM',
-                'gsi1sk': f'{r["building"]}#{r["number"]:04d}',
-                'entity_type': 'room',
-                **_str_ids(r),
-            }
-        )
+    # Rooms and places carry no GSI keys any more. Both used to need a constant partition
+    # (`TYPE#ROOM`, `TYPE#PLACE`) to be readable inside the shared table; a table of their own is
+    # that partition, so the keys would index nothing that the scan does not already reach.
+    room_items = [  # 'type' here is the room type, not to be confused with entity_type
+        {'pk': f'ROOM#{r["id"]}', 'sk': '#META', 'entity_type': 'room', **_str_ids(r)} for r in rooms
+    ]
 
-    for pl in places:
-        items.append(
-            {
-                'pk': f'PLACE#{pl["id"]}',
-                'sk': '#META',
-                'gsi1pk': 'TYPE#PLACE',
-                'gsi1sk': f'PLACE#{pl["name"]}',
-                # a denormalized lowercase copy of the name — for a case-insensitive
-                # FilterExpression contains() (DynamoDB expressions have no lower()).
-                'name_lower': pl['name'].lower(),
-                'entity_type': 'place',
-                **_str_ids(pl),
-            }
-        )
+    place_items = [
+        {
+            'pk': f'PLACE#{pl["id"]}',
+            'sk': '#META',
+            # a denormalized lowercase copy of the name — for a case-insensitive
+            # FilterExpression contains() (DynamoDB expressions have no lower()).
+            'name_lower': pl['name'].lower(),
+            'entity_type': 'place',
+            **_str_ids(pl),
+        }
+        for pl in places
+    ]
 
-    for s in schedule:  # one item serves P1 (group) / P2 (professor) / P3 (room)
-        wd = WEEKDAY_NUM[s['weekday']]
-        sched_sk = f'SCHED#{wd}#{s["start_time"]}'
-        items.append(
-            {
-                'pk': f'GROUP#{s["group_id"]}',
-                'sk': sched_sk,
-                'gsi1pk': f'PROF#{s["professor_id"]}',
-                'gsi1sk': sched_sk,
-                'gsi2pk': f'ROOM#{s["room_id"]}',
-                'gsi2sk': sched_sk,
-                'entity_type': 'schedule',
-                **_str_ids(s),
-            }
-        )
+    return {
+        T_FACULTIES: faculty_items,
+        T_PROGRAMS: program_items,
+        T_GROUPS: group_items,
+        T_PROFESSORS: professor_items,
+        T_COURSES: course_items,
+        T_ROOMS: room_items,
+        T_PLACES: place_items,
+    }
 
-    return items
+
+def _count_faculty_dependants(
+    programs: list[dict[str, Any]],
+    professors: list[dict[str, Any]],
+    courses: list[dict[str, Any]],
+    faculty_id_by_name: dict[str, Any],
+) -> Counter[str]:
+    """How many programmes, professors and courses each seeded faculty owns.
+
+    All three count, not just programmes: the counter stands in for 'anything is still filed under
+    this faculty', and a faculty seeded with a professor but no programme must be as undeletable as
+    one with both. Programmes and courses name their faculty, professors reference its id — hence
+    the two ways of reaching the same key."""
+    counts: Counter[str] = Counter()
+    counts.update(str(faculty_id_by_name[p['faculty']]) for p in programs)
+    counts.update(str(pr['faculty_id']) for pr in professors)
+    counts.update(str(faculty_id_by_name[c['faculty']]) for c in courses)
+    return counts
 
 
 def build_slot_items() -> list[dict[str, Any]]:
@@ -453,44 +520,56 @@ def _print_rows(title: str, rows: list[dict[str, Any]], fields: list[str]) -> No
 
 
 def demo() -> None:
-    uni = _resource().Table(T_UNIVERSITY)
+    groups = _resource().Table(T_GROUPS)
+    programs = _resource().Table(T_PROGRAMS)
+    professors = _resource().Table(T_PROFESSORS)
     slots = _resource().Table(T_SLOTS)
     issues = _resource().Table(T_ISSUES)
 
     rule = '=' * 70
     logger.info('\n%s\nDEMO: same data, different questions — each answered by a SINGLE query\n%s', rule, rule)
 
-    # P1 — schedule of group 1  [university, base: pk=GROUP#1]
-    r = uni.query(KeyConditionExpression=Key('pk').eq('GROUP#1') & Key('sk').begins_with('SCHED#'))
+    # P1 — schedule of group 1  [academic_groups, base: pk=GROUP#1]. The colocation the split kept:
+    # the group's own row and its classes share a partition, so both come back in one query.
+    r = groups.query(KeyConditionExpression=Key('pk').eq('GROUP#1') & Key('sk').begins_with('SCHED#'))
     _print_rows(
-        'P1 · Schedule of group 1  [university base]',
+        'P1 · Schedule of group 1  [academic_groups base]',
         r['Items'],
         ['weekday', 'start_time', 'end_time', 'course_id', 'room_id'],
     )
 
-    # P2 — schedule of professor 1  [university, GSI1: gsi1pk=PROF#1]
-    r = uni.query(
+    # P2 — schedule of professor 1  [academic_groups, GSI1: gsi1pk=PROF#1]. The one GSI still
+    # overloaded on purpose: PROGRAM# for a group row, PROF# for a class row.
+    r = groups.query(
         IndexName='GSI1', KeyConditionExpression=Key('gsi1pk').eq('PROF#1') & Key('gsi1sk').begins_with('SCHED#')
     )
     _print_rows(
-        'P2 · Schedule of professor 1  [university GSI1]',
+        'P2 · Schedule of professor 1  [academic_groups GSI1]',
         r['Items'],
         ['weekday', 'start_time', 'group_id', 'room_id'],
     )
 
-    # P4 — programs of faculty 1  [university, GSI1: gsi1pk=FACULTY#1]
-    r = uni.query(
+    # P4 — programs of faculty 1  [programs, GSI1: gsi1pk=FACULTY#1]
+    r = programs.query(
         IndexName='GSI1', KeyConditionExpression=Key('gsi1pk').eq('FACULTY#1') & Key('gsi1sk').begins_with('PROGRAM#')
     )
-    _print_rows('P4 · Programs of faculty 1  [university GSI1]', r['Items'], ['name', 'degree', 'tuition_usd'])
+    _print_rows('P4 · Programs of faculty 1  [programs GSI1]', r['Items'], ['name', 'degree', 'tuition_usd'])
 
-    # P15 — professor search by name  [university, GSI_NAME: gsi_name_pk=PROF, begins_with]
-    r = uni.query(
+    # P5 — professors of faculty 1  [professors, GSI1: gsi1pk=FACULTY#1]. Worth showing now that it
+    # is a query against a table of its own: before the split it shared GSI1's FACULTY# partition
+    # with P4 and P6, and the begins_with was what kept the three apart.
+    r = professors.query(
+        IndexName='GSI1', KeyConditionExpression=Key('gsi1pk').eq('FACULTY#1') & Key('gsi1sk').begins_with('PROF#')
+    )
+    _print_rows('P5 · Professors of faculty 1  [professors GSI1]', r['Items'], ['full_name', 'title', 'email'])
+
+    # P15 — professor search by name  [professors, GSI_NAME: gsi_name_pk=PROF, begins_with]
+    r = professors.query(
         IndexName='GSI_NAME',
         KeyConditionExpression=Key('gsi_name_pk').eq('PROF') & Key('gsi_name_sk').begins_with('alan'),
     )
     _print_rows(
-        "P15 · Professor search by name 'alan'  [university GSI_NAME]",
+        "P15 · Professor search by name 'alan'  [professors GSI_NAME]",
         r['Items'],
         ['full_name', 'title', 'email', 'office_hours'],
     )
@@ -515,24 +594,23 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format='%(message)s')
     logger.info('DynamoDB endpoint: %s', ENDPOINT_URL)
 
-    recreate_table(T_UNIVERSITY, gsi_numbers=[1, 2], extra_gsis=[('GSI_NAME', 'gsi_name_pk', 'gsi_name_sk')])
-    recreate_table(T_SLOTS, gsi_numbers=[1, 2])
-    recreate_table(T_ISSUES, gsi_numbers=[1])
+    for name, (gsi_numbers, extra_gsis) in TABLE_INDEXES.items():
+        recreate_table(name, gsi_numbers=gsi_numbers, extra_gsis=extra_gsis)
     # The agent's conversation memory. No GSI: every read is scoped to a thread, and the thread is
-    # the partition. Created rather than recreated — the three tables above are wiped and refilled
-    # below, but this one is never seeded, and its rows are conversations a re-seed must not cost.
+    # the partition. Created rather than recreated — the tables above are wiped and refilled below,
+    # but this one is never seeded, and its rows are conversations a re-seed must not cost.
     create_table_if_absent(T_CHECKPOINTS, gsi_numbers=[])
     enable_ttl(T_SLOTS, 'expires_at')
 
-    load(T_UNIVERSITY, build_university_items())
+    for name, items in build_items().items():
+        load(name, items)
     load(T_SLOTS, build_slot_items())
     load(T_ISSUES, build_issue_items())
 
     demo()
 
     hints = '\n'.join(
-        f'  aws dynamodb scan --table-name {t} --endpoint-url {ENDPOINT_URL}'
-        for t in (T_UNIVERSITY, T_SLOTS, T_ISSUES, T_CHECKPOINTS)
+        f'  aws dynamodb scan --table-name {t} --endpoint-url {ENDPOINT_URL}' for t in (*TABLE_INDEXES, T_CHECKPOINTS)
     )
     logger.info('\nDone. To inspect the tables in full (AWS CLI):\n%s', hints)
 

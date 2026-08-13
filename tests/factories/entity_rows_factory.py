@@ -57,8 +57,6 @@ class ProfessorRow(BaseModel):
 class PlaceRow(BaseModel):
     pk: str
     sk: str = '#META'
-    gsi1pk: str = 'TYPE#PLACE'
-    gsi1sk: str
     name_lower: str
     entity_type: str = 'place'
     id: str
@@ -71,7 +69,6 @@ class PlaceRow(BaseModel):
     def from_entity(cls, place: Place) -> 'PlaceRow':
         return cls(
             pk=f'PLACE#{place.id}',
-            gsi1sk=f'PLACE#{place.name}',
             name_lower=place.name.lower(),
             **{field: str(value) for field, value in place.model_dump().items()},
         )

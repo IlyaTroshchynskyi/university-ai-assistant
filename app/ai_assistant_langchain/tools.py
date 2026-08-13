@@ -4,7 +4,8 @@ from langchain_core.tools import tool
 
 from app.ai_assistant.university_knowladge.knowledge_service import get_knowledge_service, join_passages
 from app.ai_assistant_langchain.agent_schemas import FindPersonToolInput, FindPlaceToolInput, RetrieverToolInput
-from app.core.dynamodb.university_repository import open_university_repository
+from app.api.v1.places.places_repository import open_places_repository
+from app.api.v1.professors.professors_repository import open_professors_repository
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ async def find_person(name: str) -> list[dict] | str:
     about a named person, e.g. "What is Professor Ivan's email?" or "When are Peter's office
     hours?". The knowledge base does not hold staff records — a name goes here, not to `retriever`.
     """
-    async with open_university_repository() as repo:
+    async with open_professors_repository() as repo:
         professors = await repo.find_professors_by_name(name)
 
     logger.info('FindPerson %r -> %s', name, f'{len(professors)} match(es)' if professors else 'none')
@@ -52,7 +53,7 @@ async def find_place(name: str) -> dict | str:
     the cafeteria?". Opening hours and locations are not in the knowledge base — they belong here,
     not to `retriever`.
     """
-    async with open_university_repository() as repo:
+    async with open_places_repository() as repo:
         place = await repo.find_place_by_name(name)
 
     logger.info('FindPlace %r -> %s', name, place.name if place else 'none')

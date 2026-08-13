@@ -17,10 +17,14 @@ BATCH_WRITE_LIMIT = 25
 Seeder = Callable[[DynamoDBService, list[Item]], Awaitable[None]]
 
 
-def university_service(db_client: DynamoDBClient) -> DynamoDBService:
-    """The generic service pointed at the university table — what a factory uses to read or write a
-    row directly, without going through a repository."""
-    return DynamoDBService(db_client, get_settings().DYNAMODB_UNIVERSITY_TABLE)
+def table_service(db_client: DynamoDBClient, table_name: str) -> DynamoDBService:
+    """The generic service pointed at one table — what a factory uses to read or write a row
+    directly, without going through a repository.
+
+    Takes the table name because there is no longer a single table to default to: a factory reaching
+    for a faculty row and one reaching for a professor row are now talking to different tables, and
+    naming which is the point."""
+    return DynamoDBService(db_client, table_name)
 
 
 @dataclass(frozen=True)
@@ -35,14 +39,25 @@ TableSpecs = dict[str, TableSpec]
 
 
 def get_table_specs() -> TableSpecs:
-    """The tables the suite runs against, keyed by the fixture that hands each one out."""
+    """The tables the suite runs against, keyed by the fixture that hands each one out.
+
+    Each spec carries the GSI set its table is created with — the same map ``db/load_dynamodb.py``
+    seeds from, so a test table has exactly the indexes the real one does. A missing GSI here does
+    not fail loudly: the query simply finds nothing, which is why the sets are spelled out per table
+    rather than shared."""
     settings = get_settings()
     return {
-        'university': TableSpec(
-            name=settings.DYNAMODB_UNIVERSITY_TABLE,
-            gsi_numbers=[1, 2],
+        'faculties': TableSpec(name=settings.DYNAMODB_FACULTIES_TABLE, gsi_numbers=[]),
+        'programs': TableSpec(name=settings.DYNAMODB_PROGRAMS_TABLE, gsi_numbers=[1]),
+        'professors': TableSpec(
+            name=settings.DYNAMODB_PROFESSORS_TABLE,
+            gsi_numbers=[1],
             extra_gsis=[('GSI_NAME', 'gsi_name_pk', 'gsi_name_sk')],
         ),
+        'courses': TableSpec(name=settings.DYNAMODB_COURSES_TABLE, gsi_numbers=[1, 2]),
+        'rooms': TableSpec(name=settings.DYNAMODB_ROOMS_TABLE, gsi_numbers=[]),
+        'places': TableSpec(name=settings.DYNAMODB_PLACES_TABLE, gsi_numbers=[]),
+        'groups': TableSpec(name=settings.DYNAMODB_GROUPS_TABLE, gsi_numbers=[1, 2]),
         'slots': TableSpec(name=settings.DYNAMODB_SLOTS_TABLE, gsi_numbers=[1, 2], ttl_attribute='expires_at'),
         'issues': TableSpec(name=ISSUES_TABLE, gsi_numbers=[1]),
         'checkpoints': TableSpec(name=settings.DYNAMODB_CHECKPOINTS_TABLE, gsi_numbers=[]),
