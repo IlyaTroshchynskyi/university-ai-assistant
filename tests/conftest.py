@@ -54,7 +54,13 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ.setdefault('AWS_REGION', 'us-east-1')
     os.environ.setdefault('AWS_ACCESS_KEY_ID', 'dummy')
     os.environ.setdefault('AWS_SECRET_ACCESS_KEY', 'dummy')
-    os.environ['DYNAMODB_UNIVERSITY_TABLE'] = 'university_test'
+    os.environ['DYNAMODB_FACULTIES_TABLE'] = 'faculties_test'
+    os.environ['DYNAMODB_PROGRAMS_TABLE'] = 'programs_test'
+    os.environ['DYNAMODB_PROFESSORS_TABLE'] = 'professors_test'
+    os.environ['DYNAMODB_COURSES_TABLE'] = 'courses_test'
+    os.environ['DYNAMODB_ROOMS_TABLE'] = 'rooms_test'
+    os.environ['DYNAMODB_PLACES_TABLE'] = 'places_test'
+    os.environ['DYNAMODB_GROUPS_TABLE'] = 'academic_groups_test'
     os.environ['DYNAMODB_SLOTS_TABLE'] = 'appointment_slots_test'
     os.environ['DYNAMODB_CHECKPOINTS_TABLE'] = 'agent_checkpoints_test'
 
@@ -116,9 +122,47 @@ async def dynamo_client() -> AsyncGenerator[DynamoDBClient, None]:
         yield client
 
 
+# One fixture per table rather than one per suite: a fixture both hands out the service and empties
+# the table afterwards, so requesting one is how a test says which tables it may leave rows in.
 @pytest.fixture
-async def university_table(dynamo_client: DynamoDBClient, tables: TableSpecs) -> AsyncGenerator[DynamoDBService, None]:
-    async with get_dynamo_base_service(dynamo_client, tables['university']) as table:
+async def faculties_table(dynamo_client: DynamoDBClient, tables: TableSpecs) -> AsyncGenerator[DynamoDBService, None]:
+    async with get_dynamo_base_service(dynamo_client, tables['faculties']) as table:
+        yield table
+
+
+@pytest.fixture
+async def programs_table(dynamo_client: DynamoDBClient, tables: TableSpecs) -> AsyncGenerator[DynamoDBService, None]:
+    async with get_dynamo_base_service(dynamo_client, tables['programs']) as table:
+        yield table
+
+
+@pytest.fixture
+async def professors_table(dynamo_client: DynamoDBClient, tables: TableSpecs) -> AsyncGenerator[DynamoDBService, None]:
+    async with get_dynamo_base_service(dynamo_client, tables['professors']) as table:
+        yield table
+
+
+@pytest.fixture
+async def courses_table(dynamo_client: DynamoDBClient, tables: TableSpecs) -> AsyncGenerator[DynamoDBService, None]:
+    async with get_dynamo_base_service(dynamo_client, tables['courses']) as table:
+        yield table
+
+
+@pytest.fixture
+async def rooms_table(dynamo_client: DynamoDBClient, tables: TableSpecs) -> AsyncGenerator[DynamoDBService, None]:
+    async with get_dynamo_base_service(dynamo_client, tables['rooms']) as table:
+        yield table
+
+
+@pytest.fixture
+async def places_table(dynamo_client: DynamoDBClient, tables: TableSpecs) -> AsyncGenerator[DynamoDBService, None]:
+    async with get_dynamo_base_service(dynamo_client, tables['places']) as table:
+        yield table
+
+
+@pytest.fixture
+async def groups_table(dynamo_client: DynamoDBClient, tables: TableSpecs) -> AsyncGenerator[DynamoDBService, None]:
+    async with get_dynamo_base_service(dynamo_client, tables['groups']) as table:
         yield table
 
 
@@ -160,9 +204,18 @@ class TestBaseAgentClass(TestBaseClientClass):
 class TestBaseDBClass:
     @pytest.fixture(autouse=True)
     def _a_provide_db(
-        self, university_table: DynamoDBService, tables: TableSpecs, dynamo_client: DynamoDBClient
+        self,
+        faculties_table: DynamoDBService,
+        programs_table: DynamoDBService,
+        rooms_table: DynamoDBService,
+        groups_table: DynamoDBService,
+        tables: TableSpecs,
+        dynamo_client: DynamoDBClient,
     ) -> None:
-        self.university_table = university_table
+        self.faculties_table = faculties_table
+        self.programs_table = programs_table
+        self.rooms_table = rooms_table
+        self.groups_table = groups_table
         self.tables = tables
         self.dynamo_client = dynamo_client
 

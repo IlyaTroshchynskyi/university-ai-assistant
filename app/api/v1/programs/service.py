@@ -2,9 +2,9 @@ from typing import Annotated
 
 from fastapi import Depends
 
-from app.api.v1.programs.enums import ProgramCreateOutcome
 from app.api.v1.programs.repository import ProgramsRepository
 from app.api.v1.programs.schemas import ProgramCreate, ProgramItem
+from app.core.enums import CreateOutcome, DeleteOutcome
 from app.core.exceptions import AlreadyExistError, NotFoundError
 
 
@@ -14,9 +14,11 @@ class ProgramService:
 
     async def create_program(self, creation: ProgramCreate) -> ProgramItem:
         outcome, program = await self._repo.create_program(creation)
-        if outcome is ProgramCreateOutcome.FACULTY_NOT_FOUND:
+        # The enum says only 'the parent was missing'; naming *which* parent is the service's job,
+        # and the reason the message did not move into the enum with the outcome.
+        if outcome is CreateOutcome.PARENT_NOT_FOUND:
             raise NotFoundError(f'Faculty not found with id = {creation.faculty_id}')
-        if outcome is ProgramCreateOutcome.NAME_TAKEN:
+        if outcome is CreateOutcome.NAME_TAKEN:
             raise AlreadyExistError(
                 f'Program already exists with name = {creation.name} in faculty = {creation.faculty_id}'
             )
@@ -28,7 +30,8 @@ class ProgramService:
 
     async def delete_program(self, program_id: str) -> None:
         """Delete a programme that nothing depends on."""
-        if await self._repo.has_dependants(program_id):
+        outcome = await self._repo.delete_program(program_id)
+        if outcome is DeleteOutcome.HAS_DEPENDANTS:
             raise AlreadyExistError(f'Program with id = {program_id} still has groups')
-        if not await self._repo.delete_program(program_id):
+        if outcome is DeleteOutcome.NOT_FOUND:
             raise NotFoundError(f'Program not found with id = {program_id}')

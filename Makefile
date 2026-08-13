@@ -12,6 +12,14 @@ test-checkpointer:
 	pytest tests/dynamodb/test_checkpointer.py -v
 
 
+# Wipe and refill every table from db/seed/ (agent_checkpoints is left alone — it holds
+# conversations nothing can rebuild). Also the fix for a drifted `dependants` counter, which is
+# what a parent's DELETE refuses on: there is no production data here, so recounting in place would
+# buy nothing a re-seed does not.
+seed:
+	uv run python -m db.load_dynamodb
+
+
 # Every eval target makes real OpenAI calls and costs money. --log-cli-level is what makes
 # assert_metrics print the score table on passing runs too, so a near-miss is visible before it
 # turns into a failure. The two scoring suites also need Qdrant, and skip themselves with a reason

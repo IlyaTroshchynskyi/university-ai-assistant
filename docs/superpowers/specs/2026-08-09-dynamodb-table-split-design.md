@@ -1,7 +1,17 @@
 # Splitting the `university` table, and keeping locality where it is paid for
 
 **Date:** 2026-08-09
-**Status:** Designed — not yet implemented
+**Status:** Implemented 2026-08-12. The result is documented in `db/03-table-split.md`.
+
+Two things the implementation decided that this design left open:
+
+- **`ProgramsRepository.has_dependants` was not covered here.** It guards `DELETE /programs/{id}` by
+  querying GSI1 for `PROGRAM#{id}` — a partition that ceases to exist once groups move to
+  `academic_groups`, so the guard would have died silently. Programmes carry a `dependants` counter
+  of their own, maintained the same way, rather than reading across tables.
+- **`dependants` is not a field on `FacultyItem`/`ProgramItem`.** It is maintained by `ADD` and read
+  only by a condition, so keeping it off the schema is what holds this refactor to its promise of
+  changing no API contract — the attribute would otherwise appear in every response body.
 
 ## Overview
 

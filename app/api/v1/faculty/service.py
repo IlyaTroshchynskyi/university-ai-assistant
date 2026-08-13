@@ -4,6 +4,7 @@ from fastapi import Depends
 
 from app.api.v1.faculty.repository import FacultyRepository
 from app.api.v1.faculty.schemas import FacultyCreate, FacultyItem
+from app.core.enums import DeleteOutcome
 from app.core.exceptions import AlreadyExistError, NotFoundError
 
 
@@ -22,7 +23,8 @@ class FacultyService:
 
     async def delete_faculty(self, faculty_id: str) -> None:
         """Delete a faculty that nothing depends on."""
-        if await self._repo.has_dependants(faculty_id):
+        outcome = await self._repo.delete_faculty(faculty_id)
+        if outcome is DeleteOutcome.HAS_DEPENDANTS:
             raise AlreadyExistError(f'Faculty with id = {faculty_id} still has programs, professors or courses')
-        if not await self._repo.delete_faculty(faculty_id):
+        if outcome is DeleteOutcome.NOT_FOUND:
             raise NotFoundError(f'Faculty not found with id = {faculty_id}')

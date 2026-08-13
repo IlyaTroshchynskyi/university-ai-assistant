@@ -23,10 +23,14 @@ class FacultyNameItem(BaseModel):
     in the same transaction as the faculty (``FacultyRepository.create_faculty``), its condition is
     what a second 'Computer Science' collides with.
 
-    It deliberately carries no ``entity_type`` and no GSI keys: nothing indexes it, and the faculty
-    listing — a scan filtered on ``entity_type`` — steps over it rather than trying to read it as a
-    faculty. ``faculty_id`` points back at the row holding the name, which is also what a lookup by
-    name would need.
+    It shares the ``faculties`` table with what it reserves, which is the criterion for colocation
+    working on a row type never designed against it: no entry point of its own, exactly one per
+    faculty, deleted with the faculty. That is what keeps ``create_faculty`` a single-table
+    transaction.
+
+    It deliberately carries no GSI keys — nothing indexes it — and its ``#UNIQUE`` sort key is what
+    the faculty listing filters out, reading only the ``#META`` rows beside it. ``faculty_id`` points
+    back at the row holding the name, which is also what a lookup by name would need.
     """
 
     entity: ClassVar[str] = 'FACULTY_NAME'

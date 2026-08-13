@@ -1,15 +1,9 @@
 from app.api.v1.programs.schemas import ProgramItem, ProgramNameItem
 from tests.conftest import TestBaseClientDBClass
-from tests.factories.factory_creators import (
-    create_test_faculty,
-    create_test_group_row,
-    create_test_program,
-    create_test_room,
-)
+from tests.factories.factory_creators import create_test_faculty, create_test_group_row, create_test_program
 from tests.factories.factory_getters import get_test_program, get_test_program_name_reservation
 from tests.factories.faculty_factory import FacultyCreationFactory
 from tests.factories.program_factory import ProgramCreationFactory
-from tests.factories.rooms_factory import RoomCreationFactory
 
 
 class TestPrograms(TestBaseClientDBClass):
@@ -125,10 +119,13 @@ class TestPrograms(TestBaseClientDBClass):
         expected = [first.model_dump(), second.model_dump()]
         assert sorted(response.json(), key=lambda p: p['id']) == sorted(expected, key=lambda p: p['id'])
 
-    async def test_list_programs_skips_other_entities(self) -> None:
+    async def test_list_programs_skips_name_reservations(self) -> None:
+        """As with faculties: a programme's reservation row sits beside it in ``programs``, and the
+        listing reads the ``#META`` rows only."""
         faculty = await create_test_faculty(FacultyCreationFactory.build(), self.dynamo_client)
         program = await create_test_program(faculty.id, self.dynamo_client)
-        await create_test_room(RoomCreationFactory.build(), self.dynamo_client)
+        reservation = await get_test_program_name_reservation(faculty.id, program.name, self.dynamo_client)
+        assert reservation is not None, 'the fixture is meaningless if no reservation was written'
 
         response = await self.not_auth_client.get('/programs')
 
@@ -155,6 +152,8 @@ class TestPrograms(TestBaseClientDBClass):
         assert reservation is None
 
     async def test_delete_program_with_dependants(self) -> None:
+        """The group lands in ``academic_groups``, a table this repository never reads — so what the
+        delete refuses on is the counter the group's creation left on the programme, not a query."""
         faculty = await create_test_faculty(FacultyCreationFactory.build(), self.dynamo_client)
         created = await create_test_program(faculty.id, self.dynamo_client)
         await create_test_group_row(created.id, self.dynamo_client)

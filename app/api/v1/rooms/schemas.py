@@ -1,7 +1,7 @@
 from datetime import date, time
 from typing import ClassVar
 
-from pydantic import BaseModel, computed_field, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from app.api.v1.rooms.enums import (
     IssueCategory,
@@ -12,7 +12,7 @@ from app.api.v1.rooms.enums import (
     SlotTopic,
     Weekday,
 )
-from app.core.dynamodb.base_items import ListedItem
+from app.core.dynamodb.base_items import TableItem
 
 # Todo refactor to diff modules
 
@@ -66,17 +66,10 @@ class Room(CreateRoom):
     id: str
 
 
-class RoomItem(ListedItem, CreateRoom):
-    """A room as the table stores it: the API fields plus the single-table and GSI1 keys."""
+class RoomItem(TableItem, CreateRoom):
+    """A room as the table stores it: the API fields plus the primary key."""
 
     entity: ClassVar[str] = 'ROOM'
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def gsi1sk(self) -> str:
-        """Orders the room listing by building, then door number — zero-padded, because a sort key
-        is compared as a string ('0105' < '0201', where '105' > '201' would be)."""
-        return f'{self.building}#{self.number:04d}'
 
 
 class PlaceCreate(BaseModel):

@@ -27,7 +27,16 @@ class Settings(BaseSettings):
     ENRICHMENT_ENABLED: bool = True
 
     DYNAMODB_ENDPOINT_URL: str | None = 'http://localhost:8001'
-    DYNAMODB_UNIVERSITY_TABLE: str = 'university'
+    # One table per entity (db/03-table-split.md). The exception is ``academic_groups``, which holds
+    # groups *and* their schedule rows: the one pair in the model a single query has to return
+    # together.
+    DYNAMODB_FACULTIES_TABLE: str = 'faculties'
+    DYNAMODB_PROGRAMS_TABLE: str = 'programs'
+    DYNAMODB_PROFESSORS_TABLE: str = 'professors'
+    DYNAMODB_COURSES_TABLE: str = 'courses'
+    DYNAMODB_ROOMS_TABLE: str = 'rooms'
+    DYNAMODB_PLACES_TABLE: str = 'places'
+    DYNAMODB_GROUPS_TABLE: str = 'academic_groups'
     DYNAMODB_SLOTS_TABLE: str = 'appointment_slots'
     # The LangGraph checkpointer's table — conversation history, one partition per thread.
     DYNAMODB_CHECKPOINTS_TABLE: str = 'agent_checkpoints'

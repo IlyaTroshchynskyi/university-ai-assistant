@@ -2,6 +2,13 @@
 
 Designing the DynamoDB model on top of the relational schema from `01-relational-schema.md`.
 
+> **Amended by [`03-table-split.md`](03-table-split.md).** The `university` table described below was
+> later split into one table per entity, keeping groups and their schedule rows together. **No key
+> values changed** — every `pk`, `sk` and GSI value in this document is still exactly what the code
+> writes; the rows simply live in different tables. The sections whose *tables* became wrong are
+> marked inline. The analysis itself is deliberately preserved: it is the reasoning `03` builds on,
+> and it is what states the criterion the split was measured against.
+
 ## Approach
 
 Designing for DynamoDB starts **from the queries, not from the entities** — that is the key difference from relational design ([AWS: NoSQL design](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/bp-general-nosql-design.html)). The guiding principles from the AWS documentation:
@@ -28,9 +35,21 @@ So here it is **not 'one table for everything', but 'a few tables'**:
 
 The criterion for splitting: **together** — if they are read by one query or share access patterns; **apart** — if the entity is independent, with its own lifecycle (TTL, archival) or traffic profile.
 
+> **Superseded — see [`03-table-split.md`](03-table-split.md).** Applying the criterion above to the
+> code that actually got written, six of the seven entities in `university` failed it: each has an
+> entry point of its own, unbounded volume and a lifecycle independent of its parent. The single
+> co-read that justified the shared table — a group plus its schedule — is the one pair `03` keeps
+> together, in `academic_groups`. `university` is now `faculties`, `programs`, `professors`,
+> `courses`, `rooms`, `places` and `academic_groups`. The criterion did not change; only the answer
+> it gives once the access patterns are known did.
+
 > A caveat: if a 'student' entity turns up later, along with a 'student plus their bookings in one request' query, co-locating bookings with the student will start to make sense. Until such a pattern exists, we don't merge them pre-emptively.
 
 **The access layer.** The existing `app/ai_assistant/dynamodb/base_service.py` (`DynamoDBService`) holds **the name of one table** and works with the generic `pk`/`sk` plus GSIs via `index_name`. For three tables we simply build three `DynamoDBService` instances (one per table) — no code changes needed.
+
+> One code change did turn out to be needed, and `03` makes it: a `TransactWriteItems` spanning two
+> tables (a programme and its faculty's dependant counter). Each transaction action gained an optional
+> `table`, since only our wrapper — not DynamoDB — assumed a single one.
 
 > Note: `DynamoDBService.query` does not currently forward `ScanIndexForward`. For 'top N by votes' (P11), or a schedule in reverse order, that parameter will have to be added.
 
@@ -38,20 +57,22 @@ The criterion for splitting: **together** — if they are read by one query or s
 
 ## The full list of access patterns
 
+The **Table** column is as of `03-table-split.md`; the key columns are unchanged from the original design.
+
 | # | Query | Table | How it is served |
 |---|-------|-------|------------------|
-| P1 | A group's schedule | `university` | base: `pk = GROUP#{id}`, `sk begins_with SCHED#` |
-| P2 | A professor's schedule | `university` | GSI1: `gsi1pk = PROF#{id}`, `gsi1sk begins_with SCHED#` |
-| P3 | A room's occupancy | `university` | GSI2: `gsi2pk = ROOM#{id}`, `gsi2sk begins_with SCHED#` |
-| P4 | A faculty's programmes | `university` | GSI1: `gsi1pk = FACULTY#{id}`, `gsi1sk begins_with PROGRAM#` |
-| P5 | A faculty's professors | `university` | GSI1: `gsi1pk = FACULTY#{id}`, `gsi1sk begins_with PROF#` |
-| P6 | A faculty's courses | `university` | GSI1: `gsi1pk = FACULTY#{id}`, `gsi1sk begins_with COURSE#` |
-| P7 | A programme's groups | `university` | GSI1: `gsi1pk = PROGRAM#{id}`, `gsi1sk begins_with GROUP#` |
-| P8 | A professor's courses | `university` | GSI2: `gsi2pk = PROF#{id}`, `gsi2sk begins_with COURSE#` |
-| P13 | A point read (faculty/programme/professor/course/room/place by id) | `university` | base: `pk = <ENTITY>#{id}`, `sk = #META` |
-| P14 | Every campus place | `university` | GSI1: `gsi1pk = TYPE#PLACE` |
-| P16 | Every faculty | `university` | **Scan** + filter `entity_type = faculty` — a deliberate exception, see 'P16: the one Scan' below |
-| P15 | Professor search **by name** (without knowing the faculty) | `university` | GSI_NAME: `gsi_name_pk = PROF`, `gsi_name_sk begins_with {name}` |
+| P1 | A group's schedule | `academic_groups` | base: `pk = GROUP#{id}`, `sk begins_with SCHED#` |
+| P2 | A professor's schedule | `academic_groups` | GSI1: `gsi1pk = PROF#{id}`, `gsi1sk begins_with SCHED#` |
+| P3 | A room's occupancy | `academic_groups` | GSI2: `gsi2pk = ROOM#{id}`, `gsi2sk begins_with SCHED#` |
+| P4 | A faculty's programmes | `programs` | GSI1: `gsi1pk = FACULTY#{id}`, `gsi1sk begins_with PROGRAM#` |
+| P5 | A faculty's professors | `professors` | GSI1: `gsi1pk = FACULTY#{id}`, `gsi1sk begins_with PROF#` |
+| P6 | A faculty's courses | `courses` | GSI1: `gsi1pk = FACULTY#{id}`, `gsi1sk begins_with COURSE#` |
+| P7 | A programme's groups | `academic_groups` | GSI1: `gsi1pk = PROGRAM#{id}`, `gsi1sk begins_with GROUP#` |
+| P8 | A professor's courses | `courses` | GSI2: `gsi2pk = PROF#{id}`, `gsi2sk begins_with COURSE#` |
+| P13 | A point read (faculty/programme/professor/course/room/place by id) | its own | base: `pk = <ENTITY>#{id}`, `sk = #META` |
+| P14 | A campus place by name | `places` | **Scan** + filter `contains(name_lower, …)` — the filter was always post-read, so the index it ran over bought nothing once the table held places alone |
+| P16 | Every faculty | `faculties` | **Scan** + filter `sk = #META` — cheap now that the table holds ~6 faculties, see 'P16: the one Scan' below |
+| P15 | Professor search **by name** (without knowing the faculty) | `professors` | GSI_NAME: `gsi_name_pk = PROF`, `gsi_name_sk begins_with {name}` |
 | P9 | Open slots on a date (topic optional) | `appointment_slots` | base: `pk = {date}`, filter `status = open` (+ `topic`) |
 | P9b | Open slots by status (all dates) | `appointment_slots` | GSI1: `gsi1pk = STATUS#{status}` |
 | P10 | One student's bookings | `appointment_slots` | GSI2: `gsi2pk = STUDENT#{email}` |
@@ -62,7 +83,7 @@ The criterion for splitting: **together** — if they are read by one query or s
 
 ## Key design
 
-All three tables use the same key names (`pk`/`sk` plus `gsi1pk`/`gsi1sk`, `gsi2pk`/`gsi2sk`) — so that one and the same `DynamoDBService` can work with them. The key *values* are specific to each table.
+Every table uses the same key names (`pk`/`sk` plus `gsi1pk`/`gsi1sk`, `gsi2pk`/`gsi2sk`) — so that one and the same `DynamoDBService` can work with them. The key *values* are specific to each table.
 
 Conventions for SK values (so that ordering comes out right):
 - **The weekday** is encoded as a number `1..7` (`Mon=1`), otherwise the strings `Mon/Fri/...` sort incorrectly: `SCHED#1#09:00`.
@@ -70,6 +91,13 @@ Conventions for SK values (so that ordering comes out right):
 - **Votes** are zero-padded (`0052`), so that numeric ordering works as string ordering; the top is read with `ScanIndexForward=False`.
 
 ### Table 1 — `university` (single-table, the academic core)
+
+> **The key map below is still current; the table it sits in is not.** These rows now live in seven
+> tables ([`03-table-split.md`](03-table-split.md)) with their keys byte-for-byte unchanged — that is
+> what made the split a pure move. Two entries did lose keys, both constants that only ever existed
+> to make an entity reachable inside the shared table: Room's `TYPE#ROOM` (added after this table was
+> written) and Place's `TYPE#PLACE`. Programme's own name reservation, added later, is
+> `PROGRAM_NAME#{faculty_id}#{name}` / `#UNIQUE`.
 
 Base keys `pk`/`sk`, two GSIs with overloaded keys, plus one named special-purpose index:
 - **GSI1** — 'by owner/parent': faculty→programmes/professors/courses, programme→groups, professor→schedule, type→places.
@@ -84,13 +112,16 @@ Base keys `pk`/`sk`, two GSIs with overloaded keys, plus one named special-purpo
 | Professor | `PROF#{id}` | `#META` | `FACULTY#{faculty_id}` | `PROF#{full_name}` | — | — |
 | Course | `COURSE#{id}` | `#META` | `FACULTY#{faculty_id}` | `COURSE#{name}` | `PROF#{professor_id}` | `COURSE#{id}` |
 | Room | `ROOM#{id}` | `#META` | — | — | — | — |
-| Place | `PLACE#{id}` | `#META` | `TYPE#PLACE` | `PLACE#{name}` | — | — |
+| Place | `PLACE#{id}` | `#META` | `TYPE#PLACE` ³ | `PLACE#{name}` ³ | — | — |
 | Schedule | `GROUP#{group_id}` | `SCHED#{wd}#{start}` | `PROF#{professor_id}` | `SCHED#{wd}#{start}` | `ROOM#{room_id}` | `SCHED#{wd}#{start}` |
 | Faculty name ² | `FACULTY_NAME#{name}` | `#UNIQUE` | — | — | — | — |
 
 ¹ Faculty is the one entity carrying no GSI keys, which is why P16 is served by a Scan — see below.
 
 ² Not an entity — a constraint. See 'Reserving a faculty name' below.
+
+³ Dropped by `03-table-split.md`: a constant partition gathering every place into one 'directory' is
+what a table of places already is.
 
 #### Reserving a faculty name
 
@@ -106,6 +137,13 @@ Programmes, professors and courses reference a faculty by id and are **not** del
 
 It is a read, though: a programme created immediately after the check passes is still orphaned. Closing that needs a dependant counter on the faculty row, updated by whatever creates a programme — which is the point at which to add it, since nothing creates one yet.
 
+> **Done, in [`03-table-split.md`](03-table-split.md).** The split forced the question: the three
+> child types no longer share a partition, so the query above has nothing to read. `has_dependants`
+> is gone, the faculty row carries `dependants`, and the guard is a **condition on the delete**
+> itself — which is what closes the window this paragraph describes. Programmes gained the same
+> counter for their groups. A drifted counter is repaired by re-seeding, there being no data here
+> that a re-seed would destroy.
+
 #### P16: the one Scan
 
 'Every faculty' (`GET /faculties`, `FacultyRepository.list_faculties`) is served by a **Scan of the whole `university` table with a filter on `entity_type = faculty`** — the one place in the model that breaks the 'an index, not a Scan' rule stated for GSI_NAME below. Recorded here rather than left implicit, because the code and this document have to agree on it.
@@ -119,6 +157,15 @@ The fix, when it is worth doing, is the same shape as P14 (`TYPE#PLACE`) — and
 1. `FacultyItem` extends `ListedItem` instead of `TableItem` (giving `gsi1pk = TYPE#FACULTY`), declaring `gsi1sk = FACULTY#{name}` so the listing is ordered.
 2. `list_faculties` becomes a Query on GSI1 — the `entity_type` filter then falls away, since the index holds faculties only.
 3. `db/load_dynamodb.py` writes `gsi1pk`/`gsi1sk` for faculties. **Without this the seeded faculties are invisible to the new query** and the endpoint quietly returns `[]`.
+
+> **Resolved differently by [`03-table-split.md`](03-table-split.md).** The split fixed the cost
+> without building the index: the Scan now reads `faculties`, a table holding ~6 faculties and their
+> name reservations, so 'reads the entire table' and 'returns the whole answer' became the same
+> thing. The filter is `sk = #META` rather than `entity_type = faculty` — one rule for every entity
+> table. `ListedItem` was removed, and the three-step fix above is moot: it existed to make one entity
+> type reachable inside a table shared with six others. Ordering, where an endpoint promised it
+> (`list_rooms`), is applied in Python after the scan. The listing is still unordered for faculties,
+> which nothing has asked for.
 
 **The special-purpose `GSI_NAME` index (Professor only):**
 
@@ -248,7 +295,7 @@ A single `pk = GROUP#1` query returns **all of those rows at once**, ordered by 
 
 1. **Pin down the access patterns** (the table above) — when new ones appear, update it first, then the keys.
 2. **Model it in NoSQL Workbench** — check the partitions/GSIs visually, against the real data in `db/seed/`.
-3. **Create the 3 tables** (`university`, `appointment_slots`, `reported_issues`) with their GSIs, billing mode `PAY_PER_REQUEST` for the dev environment; enable a **TTL** on `appointment_slots` over the `expires_at` attribute.
+3. **Create the tables** with their GSIs, billing mode `PAY_PER_REQUEST` for the dev environment; enable a **TTL** on `appointment_slots` over the `expires_at` attribute. *(Three when this was written — `university`, `appointment_slots`, `reported_issues`; nine since `03-table-split.md`, plus `agent_checkpoints`, which is created only when missing.)*
 4. **Write a seed → items loader** — transforming the JSON in `db/seed/` into items following the key maps (BatchWriteItem). Implemented in `db/load_dynamodb.py`.
 5. **Implement repositories on top of `DynamoDBService`** — one service instance per table, one method per access pattern (P1…P16), with `Key(...)`/`begins_with`.
 6. **Add a `ScanIndexForward` parameter to `DynamoDBService.query`** — needed for P11 (top reports) and for the schedule in reverse order.
