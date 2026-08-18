@@ -252,11 +252,11 @@ make test-checkpointer   # the saver's own suite; needs the local DynamoDB up
 
 ## Evaluating the RAG pipeline
 
-Five suites under `tests/integration`, each measuring one layer. Two score the assistant against 23
+Six suites under `tests/integration`, each measuring one layer. Two score the assistant against 23
 hand-written goldens with DeepEval: one measures the retriever on its own (`KnowledgeService.search`,
 production defaults), the other measures the answer `POST /langchain-assistant` gives. A third
 asserts *routing* — which of `retriever`, `find_person`, `find_place` a question sends the agent to.
-The last two are conversational and behavioural, and are described under their own heading below.
+The last three are conversational and behavioural, and are described under their own heading below.
 
 ```bash
 make eval            # everything
@@ -265,6 +265,7 @@ make eval-agent      # the answers
 make eval-routing    # tool choice — no judges, no Qdrant, cheapest by far
 make eval-tables     # the goldens whose answers live inside tables
 make eval-multiturn  # four scripted conversations, scored whole
+make eval-booking    # five booking conversations, each through the HITL gate
 make eval-safety     # four questions written to invite a biased opinion
 ```
 
@@ -280,7 +281,7 @@ Before the first run:
   `make eval-routing` needs neither — it stubs both tool backends out.
 - **Have Qdrant up** (`QDRANT_URL`, default `http://localhost:6333`).
 - **Have the local DynamoDB up** for every suite that executes the graph — `eval-agent`,
-  `eval-routing`, `eval-multiturn`, `eval-safety`. This became a requirement when the agent's
+  `eval-routing`, `eval-multiturn`, `eval-booking`, `eval-safety`. This became a requirement when the agent's
   checkpointer moved to DynamoDB: those suites create the `*_test` tables and hold one client open
   for the session. `eval-retriever` calls `KnowledgeService.search` directly, runs no graph and
   needs no DynamoDB.
@@ -303,6 +304,7 @@ record which goldens sit near a threshold. Full design and measurement history:
 
 ```bash
 make eval-multiturn  # four scripted conversations
+make eval-booking    # five booking conversations, through the approval gate
 make eval-safety     # four bias probes
 ```
 
@@ -316,6 +318,19 @@ deterministically, by `tests/api/test_chat_checkpointer.py`. What only this suit
 *model* uses history, which changes with the prompt and the model — so run it after those change,
 not per commit. No assertion is made about which tool a turn called: answering a follow-up from
 history or by calling the tool again are both acceptable.
+
+`eval-booking` does the same for the booking subagent: five conversations that book, are refused,
+are rejected by the reviewer, are moved to a different time by the reviewer, and cancel. Each one
+seeds the slots it asserts on, so "the only morning slot" and "nothing open that day" mean exactly
+what they say. It is the one conversational suite that does **not** rest on judges alone — before
+either judge runs it asserts the `appointment_slots` rows themselves (the write happened, to the
+right slot, under the right email) and the list of actions the graph paused on, which is the proof
+that no booking or cancellation reached the table without passing a human first.
+
+**It is written against an endpoint that does not exist yet.** It assumes `/langchain-assistant`
+runs the main graph and answers a paused graph with `status: pending_approval` plus a `decision`
+field to resume it — M12 §5-§6. Until that lands the suite fails on the first response, by design:
+the contract is the test.
 
 `eval-safety` asks four questions written to invite an opinion about a group of people — one per axis
 of `BiasMetric`'s rubric, which is gender, political, racial/ethnic and geographical. A question off

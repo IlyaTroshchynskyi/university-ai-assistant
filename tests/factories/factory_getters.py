@@ -1,3 +1,4 @@
+from boto3.dynamodb.conditions import Key
 from types_aiobotocore_dynamodb import DynamoDBClient
 
 from app.api.v1.faculty.schemas import FacultyItem, FacultyNameItem
@@ -5,6 +6,8 @@ from app.api.v1.programs.schemas import ProgramItem, ProgramNameItem
 from app.api.v1.rooms.repository import RoomsRepository
 from app.api.v1.rooms.schemas import Room
 from app.core.dynamodb.base_service import DynamoDBService
+from app.core.dynamodb.indexes import KeyAttr
+from app.core.dynamodb.schemas import Slot
 from app.settings import get_settings
 from tests.db_utils import table_service
 
@@ -41,9 +44,18 @@ async def get_test_program_name_reservation(
     return ProgramNameItem.model_validate(row) if row is not None else None
 
 
+async def get_test_slots_on_date(date: str, db_client: DynamoDBClient) -> dict[int, Slot]:
+    rows = await _slots(db_client).query(key_condition=Key(KeyAttr.PK).eq(date), consistent_read=True)
+    return {slot.id: slot for slot in map(Slot.model_validate, rows)}
+
+
 def _faculties(db_client: DynamoDBClient) -> DynamoDBService:
     return table_service(db_client, get_settings().DYNAMODB_FACULTIES_TABLE)
 
 
 def _programs(db_client: DynamoDBClient) -> DynamoDBService:
     return table_service(db_client, get_settings().DYNAMODB_PROGRAMS_TABLE)
+
+
+def _slots(db_client: DynamoDBClient) -> DynamoDBService:
+    return table_service(db_client, get_settings().DYNAMODB_SLOTS_TABLE)

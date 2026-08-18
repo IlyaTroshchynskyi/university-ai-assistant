@@ -11,7 +11,7 @@ from langchain_core.messages import AIMessage
 import pytest
 from qdrant_client.models import ScoredPoint
 
-from app.ai_assistant_langchain.agent import create_assistant_agent
+from app.ai_assistant_langchain.main_graph import build_main_graph
 from app.core.dynamodb.schemas import Place, Professor
 from tests.conftest import TestBaseClientClass
 from tests.integration.metrics import assert_metrics, routing_metrics
@@ -78,17 +78,24 @@ class StubKnowledgeService:
 
 class StubProfessorsRepository:
     """Answers every lookup with a match, whatever the name. A miss would send the model looking
-    for a second tool, and the fallback path is not what this suite measures."""
+    for a second tool, and the fallback path is not what this suite measures.
+
+    The name asked for is echoed back into the record. Returning a fixed professor to every query
+    is a miss wearing a match: asked about Sophia Martens and handed Alan Whitfield, the model
+    reasonably assumes it spelled the name wrong and calls `find_person` a second time — which the
+    suite then reads as choosing the tool twice.
+    """
 
     async def find_professors_by_name(self, name: str) -> list[Professor]:
-        return [PROFESSOR]
+        return [PROFESSOR.model_copy(update={'full_name': name})]
 
 
 class StubPlacesRepository:
-    """The place half of the same idea — two stubs now that the two lookups read two tables."""
+    """The place half of the same idea — two stubs now that the two lookups read two tables, and
+    the same echo, for the same reason."""
 
     async def find_place_by_name(self, name: str) -> Place:
-        return PLACE
+        return PLACE.model_copy(update={'name': name})
 
 
 @asynccontextmanager
@@ -103,7 +110,7 @@ async def stub_places_repository() -> AsyncGenerator[StubPlacesRepository, None]
 
 async def get_called_tools(user_id: str) -> list[ToolCall]:
     """The tools the model asked for, in the order it asked for them, read back off the thread."""
-    snapshot = await create_assistant_agent().aget_state({'configurable': {'thread_id': user_id}})
+    snapshot = await build_main_graph().aget_state({'configurable': {'thread_id': user_id}})
     called_tools: list[ToolCall] = []
     for message in snapshot.values['messages']:
         if not isinstance(message, AIMessage):

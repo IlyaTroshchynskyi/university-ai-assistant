@@ -8,16 +8,19 @@ propose_slot_task:
     Call "List Free Slots" to see the real open slots (which are just dates/times), then
     pick the single open slot that best matches the DATE/TIME the applicant asked for.
     Separately capture the TOPIC — what they want to discuss — from their message, to be
-    recorded on the booking. If the conversation above shows you already proposed a slot
-    and the applicant now wants a different time or date, propose a DIFFERENT open slot
-    than the one before. Do not book anything yourself.
+    recorded on the booking. Capture their EMAIL ADDRESS the same way, from anywhere in
+    the conversation above or in this request: the booking is recorded against it. Use it
+    exactly as they wrote it. If they have not given one, leave it null — never invent an
+    address and never build one out of their name. If the conversation above shows you
+    already proposed a slot and the applicant now wants a different time or date, propose
+    a DIFFERENT open slot than the one before. Do not book anything yourself.
 
     Also write a friendly, natural "message" to the applicant that proposes this slot in
     your own words and asks them to confirm (yes / no) or suggest another time. Write this
     message in the SAME language the applicant used in their request.
   expected_output: >
     The chosen slot as structured data: slot_id, date, start_time, topic (what the
-    applicant wants to discuss, empty if not stated), applicant_name (empty string if
-    none given), and message (your natural proposal text for the applicant, asking them
-    to confirm or suggest another time).
+    applicant wants to discuss, empty if not stated), applicant_email (their address, or
+    null if they have not given one), and message (your natural proposal text for the
+    applicant, asking them to confirm or suggest another time).
   agent: booking_assistant

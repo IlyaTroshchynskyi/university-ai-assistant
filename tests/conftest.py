@@ -122,6 +122,20 @@ async def dynamo_client() -> AsyncGenerator[DynamoDBClient, None]:
         yield client
 
 
+@pytest_asyncio.fixture(scope='session', loop_scope='session')
+async def session_dynamo_client(tables: TableSpecs) -> AsyncGenerator[DynamoDBClient, None]:
+    """One client for the whole session, opened on the **session** loop — option A of
+    ``docs/specs/event-loop-scopes-in-tests.md``.
+
+    ``dynamo_client`` cannot serve the suites that run there. It is created and torn down on the
+    per-test loop, so a session-loop test writes through it happily and then the finalizer, back on
+    the function loop, trips over a connection that belongs to neither: ``1 passed, 1 error``. That
+    was measured twice — the probes are in the spec.
+    """
+    async with open_dynamo_client(get_aioboto_session(), get_settings()) as client:
+        yield client
+
+
 # One fixture per table rather than one per suite: a fixture both hands out the service and empties
 # the table afterwards, so requesting one is how a test says which tables it may leave rows in.
 @pytest.fixture

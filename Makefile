@@ -49,6 +49,11 @@ eval-tables:
 eval-multiturn:
 	pytest tests/integration/test_agent_multiturn_eval.py --run-eval --log-cli-level=INFO -v
 
+# The booking subagent end to end: five conversations through /langchain-assistant, each one
+# answering its own HITL pause. Needs DynamoDB (it seeds the slots it asserts on) but not Qdrant.
+eval-booking:
+	pytest tests/integration/test_booking_multiturn_eval.py --run-eval --log-cli-level=INFO -v
+
 eval-safety:
 	pytest tests/integration/test_safety_eval.py --run-eval --log-cli-level=INFO -v
 

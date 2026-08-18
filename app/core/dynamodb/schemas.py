@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Any
 
 from boto3.dynamodb.conditions import ConditionBase
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 
 class SlotStatus(StrEnum):
@@ -36,7 +36,7 @@ class Slot(BaseModel):
     end_time: str
     status: SlotStatus
     topic: str | None = None
-    booked_by: str | None = None  # student email; set once booked
+    booked_by: EmailStr | None = None  # set once booked; the address the booking is reached at
     expires_at: int | None = None  # epoch seconds — TTL attribute
 
 

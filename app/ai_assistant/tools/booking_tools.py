@@ -1,5 +1,5 @@
 from crewai.tools import BaseTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from app.core.dynamodb.schemas import SlotStatus
 from app.core.dynamodb.slots_repository import open_slots_repository
@@ -18,7 +18,14 @@ class ProposedSlot(BaseModel):
             'request — recorded on the booking. Empty if not stated. NOT a property of the slot.'
         ),
     )
-    applicant_name: str = Field(default='', description="The applicant's name if they gave one, else empty.")
+    applicant_email: EmailStr | None = Field(
+        default=None,
+        description=(
+            "The applicant's email address, exactly as they wrote it — the booking is recorded "
+            'against it and it is how they are reached about the appointment. Null if they have not '
+            'given one; never invent an address or build one out of their name.'
+        ),
+    )
     message: str = Field(
         description=(
             'A friendly one- or two-sentence message to show the applicant that proposes '

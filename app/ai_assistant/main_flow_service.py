@@ -142,12 +142,14 @@ class MainFlowService:
         if not candidates:
             return None
         s = candidates[0]
+        # The slot is replaced, the applicant is not: their topic and address belong to them, and
+        # dropping them here would make the flow ask for an email they have already given.
         return ProposedSlot(
             slot_id=s.id,
             date=s.date,
             start_time=s.start_time,
-            topic='',
-            applicant_name='',
+            topic=proposal.topic if proposal else '',
+            applicant_email=proposal.applicant_email if proposal else None,
             message='',
         )
 

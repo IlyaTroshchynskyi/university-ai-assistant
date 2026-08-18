@@ -19,11 +19,7 @@ Seeder = Callable[[DynamoDBService, list[Item]], Awaitable[None]]
 
 def table_service(db_client: DynamoDBClient, table_name: str) -> DynamoDBService:
     """The generic service pointed at one table — what a factory uses to read or write a row
-    directly, without going through a repository.
-
-    Takes the table name because there is no longer a single table to default to: a factory reaching
-    for a faculty row and one reaching for a professor row are now talking to different tables, and
-    naming which is the point."""
+    directly, without going through a repository."""
     return DynamoDBService(db_client, table_name)
 
 
@@ -69,7 +65,7 @@ async def _drop_table(client: DynamoDBClient, name: str) -> None:
     await client.get_waiter('table_not_exists').wait(TableName=name)
 
 
-async def _clear_table(client: DynamoDBClient, name: str) -> None:
+async def clear_table(client: DynamoDBClient, name: str) -> None:
     """Delete every row of ``name``, leaving the table and its indexes standing."""
     keys: list[dict[str, Any]] = []
     kwargs: dict[str, Any] = {'TableName': name, 'ProjectionExpression': 'pk, sk'}
@@ -114,4 +110,4 @@ async def get_dynamo_base_service(client: DynamoDBClient, spec: TableSpec) -> As
     try:
         yield DynamoDBService(client, spec.name)
     finally:
-        await _clear_table(client, spec.name)
+        await clear_table(client, spec.name)

@@ -39,7 +39,7 @@ from langchain_core.messages import ToolMessage
 import pytest
 
 from app.ai_assistant.university_knowladge.knowledge_service import NO_RESULTS
-from app.ai_assistant_langchain.agent import create_assistant_agent
+from app.ai_assistant_langchain.main_graph import build_main_graph
 from tests.conftest import TestBaseClientClass
 from tests.integration.goldens import golden_params, GoldenCase, Layer
 from tests.integration.metrics import agent_metrics, assert_metrics
@@ -59,7 +59,7 @@ GOLDENS = golden_params(Layer.AGENT)
 
 
 async def retrieved_chunks(user_id: str) -> list[str]:
-    snapshot = await create_assistant_agent().aget_state({'configurable': {'thread_id': user_id}})
+    snapshot = await build_main_graph().aget_state({'configurable': {'thread_id': user_id}})
     return [
         message.content
         for message in snapshot.values['messages']

@@ -13,4 +13,4 @@ async def chat_with_user(
     input_data: UserQuery,
     service: ChatService = Depends(),
 ) -> ChatSchemaOut:
-    return await service.process_user_query(input_data.user_id, input_data.query)
+    return await service.process_turn(input_data)

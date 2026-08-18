@@ -53,10 +53,16 @@ class DynamoDBService:
 
     async def put_item(self, item: Item, condition: ConditionBase | None = None) -> None:
         """Create or overwrite an item. Pass ``condition`` (e.g. ``Attr('pk').not_exists()``) to
-        make the write conditional — it raises ``ConditionalCheckFailedException`` if it fails."""
+        make the write conditional — it raises ``ConditionalCheckFailedException`` if it fails.
+
+        Empty attributes are dropped rather than written, as ``db/load_dynamodb._clean`` drops them
+        when seeding: absent and NULL read back the same through ``.get()``, and for a GSI key they
+        do not — DynamoDB has no NULL type for one, so an open slot carrying ``gsi2pk: None`` is
+        refused outright with ``Invalid attribute value type``.
+        """
         kwargs: dict[str, Any] = {
             'TableName': self._table_name,
-            'Item': self._serialize(item.model_dump()),
+            'Item': self._serialize(item.model_dump(exclude_none=True)),
             'ReturnConsumedCapacity': 'TOTAL',
         }
         if condition is not None:
