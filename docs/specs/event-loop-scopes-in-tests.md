@@ -1,7 +1,22 @@
 # Task: sort out event-loop scopes in the test suite
 
-Opened 2026-08-11. Not started. Worked around, not fixed — the workaround is described below so the
-next person does not mistake it for a design.
+Opened 2026-08-11. Half of option A landed on 2026-08-15 (see *Status*); everything underneath is
+still worked around rather than fixed, and the workaround is described below so the next person does
+not mistake it for a design.
+
+## Status (2026-08-15)
+
+**Landed.** `session_dynamo_client` in `tests/conftest.py` — session-scoped, `loop_scope='session'`,
+created and closed on the loop that uses it. The first half of option A. `_seed_university_records`
+in `test_agent_multiturn_eval.py` takes it instead of opening its own client, and the new booking
+evaluation suite seeds and reads `appointment_slots` through it.
+
+**Not done.** `TestBaseSessionDBClass`, so the first cost below still stands for anyone reaching for
+`TestBaseDBClass` from `tests/integration/`. The probes are still not kept as tests. B, C and D are
+untouched.
+
+**Not measured.** The fixture is correct by construction, not by a run: nothing has been executed
+against it since. The probes below remain the only measurement in this document.
 
 ## The problem in one line
 
@@ -70,8 +85,9 @@ correct — created, used and closed on one loop — but it has consequences wor
 
 * **`TestBaseDBClass` is unusable from `tests/integration/`.** Anyone adding an evaluation test that
   touches DynamoDB hits probe 2 above. There is nothing in the code that says so.
-* **`_seed_university_records` in `test_agent_multiturn_eval.py` opens its own client** for two rows,
-  purely because the shared `dynamo_client` fixture is the wrong scope.
+* ~~**`_seed_university_records` in `test_agent_multiturn_eval.py` opens its own client** for two
+  rows, purely because the shared `dynamo_client` fixture is the wrong scope.~~ Settled 2026-08-15:
+  it takes `session_dynamo_client` and the private client is gone.
 * **The checkpointer is opened by three different pieces of code** — `app/lifespan.py` for
   production, `TestBaseAgentClass` for `tests/api/`, `eval_checkpointer` for `tests/integration/` —
   and the two test paths exist only because the loops differ.
@@ -85,6 +101,10 @@ correct — created, used and closed on one loop — but it has consequences wor
 `session_dynamo_client` and a `TestBaseSessionDBClass` beside the existing ones; leave `tests/api/`
 untouched. Smallest change, unblocks DB-touching evaluation tests, fixes nothing underneath — the
 two scopes still coexist and the next unguarded combination still breaks the same way.
+
+> `session_dynamo_client` landed 2026-08-15; `TestBaseSessionDBClass` did not. A suite that wants
+> the client asks for it by name, which is enough for the booking evaluation and leaves the base
+> classes as they were — worth revisiting once a second suite needs more than one table.
 
 **B. One loop for the whole suite.** Make every async test run on the session loop, after which
 every fixture can be session-scoped and the singletons stay consistent. Removes the class of bug
@@ -114,6 +134,8 @@ isolation cost, not slipped in as a side effect of A or C. D is a last resort.
 
 * A test in `tests/integration/` can read and write DynamoDB through a shared fixture without a
   teardown error — the probes above, kept this time rather than deleted.
+  *Half met 2026-08-15: the shared fixture exists and the booking evaluation writes through it. The
+  probes are still not kept, so nothing yet fails if the scopes drift back.*
 * The rule "everything touching a cached async client must live on one loop" is written down where a
   test author will meet it, not only in this file.
 * If C is taken: something asserts that the app's lifespan actually ran, so the gap cannot reopen

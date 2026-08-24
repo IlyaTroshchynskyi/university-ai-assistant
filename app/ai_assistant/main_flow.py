@@ -105,6 +105,18 @@ class UniversityAssistantFlow(Flow[AssistantState]):
             )
             return self.state.answer
 
+        if proposal.applicant_email is None:
+            # No address, no proposal: the booking is written against it, and the confirmation gate
+            # below only takes yes/no — there is no step after it that could still ask. The proposal
+            # is dropped rather than held, so the applicant's next message is read as a fresh
+            # request that now carries the address.
+            self.state.answer = await self._service.phrase(
+                'Ask the applicant, in one short sentence, for the email address to book the '
+                'consultation under. Do not name a time yet and do not invent an address.',
+                request,
+            )
+            return self.state.answer
+
         self.state.proposed = proposal
         # The proposal text is written by the booking agent itself (its `message` field).
         self.state.answer = proposal.message or await self._service.phrase(
@@ -137,7 +149,7 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         feedback = self.last_human_feedback
         user_message = feedback.feedback if feedback else self.state.question
         proposed = self.state.proposed
-        who = proposed.applicant_name or self.state.session_id
+        who = proposed.applicant_email
         async with open_slots_repository() as repo:
             booked = await repo.book_slot(proposed.date, proposed.start_time, proposed.slot_id, who, proposed.topic)
         if booked:
@@ -173,7 +185,10 @@ class UniversityAssistantFlow(Flow[AssistantState]):
         remaining: list[ProposedSlot] = []
         async with open_slots_repository() as repo:
             for slot in bookings:
-                if await repo.cancel_slot(slot.date, slot.start_time, slot.slot_id):
+                # The same owner the booking was written under (`do_book`), so a slot that has since
+                # been re-booked by somebody else is left alone rather than freed.
+                who = slot.applicant_email
+                if await repo.cancel_slot(slot.date, slot.start_time, slot.slot_id, booked_by=who):
                     cancelled.append(slot)
                 else:
                     remaining.append(slot)

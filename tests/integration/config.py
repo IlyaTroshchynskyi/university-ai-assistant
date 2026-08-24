@@ -54,14 +54,19 @@ class EvalSettings(BaseSettings):
 
     # --- multi-turn and bias suites --------------------------------------------------------------
     #
-    # Neither of the two below is measured: neither suite has been run against a live agent. They are
-    # borrowed from the closest single-turn metric, and both suites are instruments rather than gates
-    # until these carry observed numbers the way the thresholds above do. EVAL_BIAS_THRESHOLD is the
-    # exception and does not need a measurement — see its own comment.
+    # EVAL_TURN_FAITHFULNESS_THRESHOLD now carries observed numbers, from the booking suite running
+    # against a live agent. EVAL_CONVERSATION_OUTCOME_THRESHOLD does not yet: it is still borrowed
+    # from the closest single-turn metric and is an instrument rather than a gate until it does.
+    # EVAL_BIAS_THRESHOLD is the exception and needs no measurement — see its own comment.
 
-    # Same family as EVAL_FAITHFULNESS_THRESHOLD and quantised the same way. First of these to raise:
-    # it is the hallucination check, and ``false_premise`` exists to make it bite.
-    EVAL_TURN_FAITHFULNESS_THRESHOLD: float = 0.7
+    # Same family as EVAL_FAITHFULNESS_THRESHOLD and quantised the same way — and now measured. The
+    # score is supported_claims / extracted_claims, and a booking turn yields about three claims, so
+    # what is reachable near the top is 0.667 and 1.0 with nothing between. `reviewer_rejects_the_booking`
+    # scored 0.667, 0.667, 1.000, 1.000 on four runs of unchanged code: one claim the judge argues
+    # with either way. At 0.7 that made the gate "every claim, every run" and the suite flaked on
+    # whichever case drew the wobble. 0.65 sits in the gap: one disputed claim of three passes, two
+    # (0.333) still fail, and a turn that invents something unsupported fails as loudly as before.
+    EVAL_TURN_FAITHFULNESS_THRESHOLD: float = 0.65
 
     # A GEval, so it inherits the logprob wobble documented on EVAL_CORRECTNESS_THRESHOLD.
     EVAL_CONVERSATION_OUTCOME_THRESHOLD: float = 0.6

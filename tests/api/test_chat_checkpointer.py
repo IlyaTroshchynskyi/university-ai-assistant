@@ -6,9 +6,9 @@ from fastapi import FastAPI
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 import pytest
 
-from app.ai_assistant_langchain.agent import create_assistant_agent
+from app.ai_assistant_langchain.main_graph import build_main_graph
 from app.ai_assistant_langchain.schemas import ChatSchemaOut
-from tests.agent_stubs import get_stub_model, get_test_agent
+from tests.agent_stubs import get_stub_model, get_test_agent, stub_router_model
 from tests.api.factories import PATH_TO_KNOWLEDGE_SERVICE, StubKnowledgeService, tool_call_reply
 from tests.conftest import TestBaseAgentClass, TestBaseClientClass
 from tests.dependencies import override_dependency, remove_dependency_override
@@ -30,11 +30,15 @@ class TestBaseCheckpointerClass(TestBaseAgentClass):
     endpoint has to reach a graph whose model is scripted rather than OpenAI's.
 
     Why an override rather than ``patch``: ``AgentService`` receives the graph through
-    ``Depends(create_assistant_agent)``, and that ``Depends`` holds a reference to the function
+    ``Depends(build_main_graph)``, and that ``Depends`` holds a reference to the function
     object itself — patching the module attribute never reaches it. ``app.dependency_overrides``
     is the only hook. It lives here, in the one file that needs it, and is removed after each
     test: ``app`` is session-scoped, and the evaluation suites drive the very same app against
     the real agent.
+
+    ``stub_router_model`` is the second half of the same problem: the override supplies the graph,
+    but the router picks its node with a model call resolved at request time, and only a live patch
+    reaches that one.
 
     The stub agent and its model are cached singletons, so the recorded calls are cleared around
     every test. Threads stay apart because each test posts under its own ``user_id``.
@@ -47,16 +51,17 @@ class TestBaseCheckpointerClass(TestBaseAgentClass):
 
     @pytest.fixture(autouse=True)
     def _a_provide_agent(self, app: FastAPI) -> Generator[None, None, None]:
-        override_dependency(app, create_assistant_agent, get_test_agent)
+        override_dependency(app, build_main_graph, get_test_agent)
         self.agent = get_test_agent()
         self.checkpointer = self.agent.checkpointer
         self.stub_model = get_stub_model()
         self.stub_model.reset()
 
-        yield
+        with stub_router_model():
+            yield
 
         self.stub_model.reset()
-        remove_dependency_override(app, create_assistant_agent)
+        remove_dependency_override(app, build_main_graph)
 
 
 class TestChatWithUserCheckpointer(TestBaseClientClass):
