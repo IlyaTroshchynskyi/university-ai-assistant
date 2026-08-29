@@ -9,12 +9,9 @@ from typing import ClassVar
 
 from pydantic import BaseModel, computed_field
 
+from app.core.dynamodb.indexes import thread_key
+
 EMPTY_TYPE = 'empty'
-
-
-def thread_key(thread_id: str) -> str:
-    """The partition every row of one conversation lives in."""
-    return f'THREAD#{thread_id}'
 
 
 def row_key(thread_id: str, sort_key: str) -> dict[str, str]:

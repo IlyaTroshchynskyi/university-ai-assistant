@@ -60,6 +60,7 @@ T_GROUPS = os.getenv('DYNAMODB_GROUPS_TABLE', 'academic_groups')
 T_SLOTS = 'appointment_slots'
 T_ISSUES = 'reported_issues'
 T_CHECKPOINTS = os.getenv('DYNAMODB_CHECKPOINTS_TABLE', 'agent_checkpoints')
+T_CONVERSATIONS = os.getenv('DYNAMODB_CONVERSATIONS_TABLE', 'conversation_history')
 
 # Which GSIs each table is created with. The seeder is the only place that knows the whole map, so
 # it is written once here rather than spelled out again at every ``recreate_table`` call.
@@ -600,6 +601,10 @@ def main() -> None:
     # the partition. Created rather than recreated — the tables above are wiped and refilled below,
     # but this one is never seeded, and its rows are conversations a re-seed must not cost.
     create_table_if_absent(T_CHECKPOINTS, gsi_numbers=[])
+    # The conversations themselves — question, answer, question, answer. Created rather than
+    # recreated for the same reason as the checkpoints beside it, and no GSI for the same reason
+    # either: a replay is scoped to a thread, and the thread is the partition.
+    create_table_if_absent(T_CONVERSATIONS, gsi_numbers=[])
     enable_ttl(T_SLOTS, 'expires_at')
 
     for name, items in build_items().items():
@@ -610,7 +615,8 @@ def main() -> None:
     demo()
 
     hints = '\n'.join(
-        f'  aws dynamodb scan --table-name {t} --endpoint-url {ENDPOINT_URL}' for t in (*TABLE_INDEXES, T_CHECKPOINTS)
+        f'  aws dynamodb scan --table-name {t} --endpoint-url {ENDPOINT_URL}'
+        for t in (*TABLE_INDEXES, T_CHECKPOINTS, T_CONVERSATIONS)
     )
     logger.info('\nDone. To inspect the tables in full (AWS CLI):\n%s', hints)
 

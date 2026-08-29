@@ -38,8 +38,16 @@ class Settings(BaseSettings):
     DYNAMODB_PLACES_TABLE: str = 'places'
     DYNAMODB_GROUPS_TABLE: str = 'academic_groups'
     DYNAMODB_SLOTS_TABLE: str = 'appointment_slots'
-    # The LangGraph checkpointer's table — conversation history, one partition per thread.
+    # The LangGraph checkpointer's table — the agent's own state, one partition per thread.
     DYNAMODB_CHECKPOINTS_TABLE: str = 'agent_checkpoints'
+    # What was said, as opposed to what the agent needed to say it: a row per message, one partition
+    # per thread. This is what `GET /langchain-assistant/{user_id}/history` replays.
+    DYNAMODB_CONVERSATIONS_TABLE: str = 'conversation_history'
+
+    LANGSMITH_TRACING: bool
+    LANGSMITH_API_KEY: str
+    LANGSMITH_ENDPOINT: str
+    LANGSMITH_PROJECT: str
 
     AWS_REGION: str = 'us-east-1'
     AWS_ACCESS_KEY_ID: str = 'dummy'

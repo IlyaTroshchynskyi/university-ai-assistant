@@ -36,6 +36,23 @@ class FindPlaceToolInput(BaseModel):
     )
 
 
+class CompareProgramsToolInput(BaseModel):
+    """Input schema for the CompareProgramsTool."""
+
+    # No ``min_length=2``, deliberately. The tool is ``return_direct``, so a schema this rejects ends
+    # the turn on pydantic's error text — the applicant reads "programs: List should have at least 2
+    # items". A short list is answered inside the tool, in a sentence written for them.
+    programs: list[str] = Field(
+        description=(
+            'Every programme to compare, in the order the applicant named them, each named as they '
+            'named it: ["Economics", "Business Analytics"]. The name on its own — no degree, no '
+            'faculty, and not the word "programme" appended to it. Between two and five, and all of '
+            'them programmes the applicant actually named: if they named only one, this is not the '
+            'tool for the question.'
+        ),
+    )
+
+
 class ListFreeSlotsToolInput(BaseModel):
     """Input schema for the ListFreeSlotsTool."""
 

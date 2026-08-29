@@ -17,8 +17,11 @@ from app.ai_assistant_langchain.enums import GraphNode
 import app.ai_assistant_langchain.main_graph as main_graph_module
 from app.ai_assistant_langchain.main_graph import build_main_graph
 
-PATH_TO_MODEL_FACTORY = 'app.ai_assistant_langchain.agent._get_model_factory'
-PATH_TO_ROUTER_MODEL_FACTORY = 'app.ai_assistant_langchain.main_graph._get_model_factory'
+# Each importing module's own name, not ``agent_model.get_model_factory`` where the factory now
+# lives: both modules bind it with ``from … import`` at import time, so patching it at the source
+# would leave the copies they already hold — and the graph would build on the real model.
+PATH_TO_MODEL_FACTORY = 'app.ai_assistant_langchain.agent.get_model_factory'
+PATH_TO_ROUTER_MODEL_FACTORY = 'app.ai_assistant_langchain.main_graph.get_model_factory'
 DEFAULT_STUB_REPLY = 'Stubbed assistant reply.'
 DEFAULT_STUB_ROUTE = GraphNode.QA
 

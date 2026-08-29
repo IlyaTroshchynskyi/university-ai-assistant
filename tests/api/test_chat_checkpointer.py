@@ -8,6 +8,7 @@ import pytest
 
 from app.ai_assistant_langchain.main_graph import build_main_graph
 from app.ai_assistant_langchain.schemas import ChatSchemaOut
+from app.core.dynamodb.base_service import DynamoDBService
 from tests.agent_stubs import get_stub_model, get_test_agent, stub_router_model
 from tests.api.factories import PATH_TO_KNOWLEDGE_SERVICE, StubKnowledgeService, tool_call_reply
 from tests.conftest import TestBaseAgentClass, TestBaseClientClass
@@ -47,10 +48,14 @@ class TestBaseCheckpointerClass(TestBaseAgentClass):
     read and write real rows in ``agent_checkpoints_test``. ``TestBaseAgentClass`` is what creates
     that table and closes the client afterwards. Running against the real saver is deliberate — it
     makes the memory assertions below an end-to-end test of it.
+
+    ``conversations_table`` for the second table a turn writes to: the endpoint records what was
+    asked and answered in ``conversation_history_test``, and the fixture is what empties it after
+    each test.
     """
 
     @pytest.fixture(autouse=True)
-    def _a_provide_agent(self, app: FastAPI) -> Generator[None, None, None]:
+    def _a_provide_agent(self, app: FastAPI, conversations_table: DynamoDBService) -> Generator[None, None, None]:
         override_dependency(app, build_main_graph, get_test_agent)
         self.agent = get_test_agent()
         self.checkpointer = self.agent.checkpointer
@@ -66,6 +71,9 @@ class TestBaseCheckpointerClass(TestBaseAgentClass):
 
 class TestChatWithUserCheckpointer(TestBaseClientClass):
     """Tests for ``POST /langchain-assistant`` with ``run_agent`` mocked out."""
+
+    @pytest.fixture(autouse=True)
+    def _a_provide_conversations(self, conversations_table: DynamoDBService) -> None: ...
 
     async def test_chat_success(self) -> None:
         """A valid query gets the assistant's last message back."""

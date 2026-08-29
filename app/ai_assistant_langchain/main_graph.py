@@ -1,17 +1,19 @@
 from functools import lru_cache
 from typing import Annotated, Sequence, TypedDict
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.constants import END, START
 from langgraph.graph import add_messages
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 from pydantic import BaseModel
 
-from app.ai_assistant_langchain.agent import _get_model_factory, create_assistant_agent, create_booking_agent
+from app.ai_assistant_langchain.agent import create_assistant_agent, create_booking_agent
+from app.ai_assistant_langchain.agent_model import get_model_factory
 from app.ai_assistant_langchain.agent_schemas import CustomContext
 from app.ai_assistant_langchain.checkpointer.saver import get_checkpointer
 from app.ai_assistant_langchain.enums import GraphNode
 from app.ai_assistant_langchain.prompts import build_router_prompt
+from app.ai_assistant_langchain.tools import DIRECT_ANSWER_TOOLS
 
 NO_HISTORY = '(no earlier messages — the conversation starts here)'
 
@@ -30,6 +32,8 @@ def _recent_turns(messages: Sequence[BaseMessage], limit: int = 4, max_chars: in
         if isinstance(message, HumanMessage):
             speaker = 'applicant'
         elif isinstance(message, AIMessage) and not message.tool_calls:
+            speaker = 'assistant'
+        elif isinstance(message, ToolMessage) and message.name in DIRECT_ANSWER_TOOLS:
             speaker = 'assistant'
         else:
             continue
@@ -53,7 +57,7 @@ async def route(state: MainState) -> GraphNode:
     """
     *earlier, current = state['messages']
     decision = (
-        await _get_model_factory()
+        await get_model_factory()
         .with_structured_output(Route)
         .ainvoke([SystemMessage(build_router_prompt(_recent_turns(earlier))), current])
     )

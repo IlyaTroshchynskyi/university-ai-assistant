@@ -34,11 +34,11 @@ from app.ai_assistant_langchain.checkpointer.items import (
     CheckpointRow,
     EMPTY_TYPE,
     row_key,
-    thread_key,
     WriteRow,
 )
 from app.core.dynamodb.base_service import DynamoDBService
 from app.core.dynamodb.client import get_aioboto_session, open_dynamo_client
+from app.core.dynamodb.indexes import thread_key
 from app.core.dynamodb.schemas import TransactAction, TransactPut
 from app.settings import get_settings, Settings
 

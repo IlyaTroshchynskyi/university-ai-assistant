@@ -19,13 +19,23 @@ from app.lifespan import lifespan
 
 LOG_FORMAT = '%(asctime)s:%(levelname)s:%(module)s:[%(filename)s:%(lineno)d]:%(funcName)s:%(message)s'
 
+# Libraries that log a line per HTTP call at INFO. ``httpx`` is the client the OpenAI, Qdrant and
+# huggingface SDKs all speak, so at the root INFO level one question to the assistant scrolls past a
+# dozen 'HTTP Request: POST …' lines — including every vocabulary file fastembed pulls from the hub —
+# with our own logs lost between them. WARNING keeps the failures and drops the traffic.
+NOISY_LOGGERS = ('httpx', 'httpcore', 'huggingface_hub', 'filelock')
+
 logging.basicConfig(
     level=logging.INFO,
     format=LOG_FORMAT,
 )
 
+for _noisy_logger in NOISY_LOGGERS:
+    logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
+
 
 def create_app() -> FastAPI:
+
     app = FastAPI(title='University Assistant', lifespan=lifespan)
     include_exception_handlers(app)
     app.include_router(rooms_router)
