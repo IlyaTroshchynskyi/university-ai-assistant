@@ -221,8 +221,74 @@ curl -X POST http://127.0.0.1:8000/langchain-assistant -H 'Content-Type: applica
   -d '{"user_id": "11111111-1111-1111-1111-111111111111", "query": "How much does it cost?"}'
 ```
 
-Everything for one thread lives in one partition of `agent_checkpoints`, under three sort-key
-prefixes named after `PostgresSaver`'s three tables:
+### The transcript (`conversation_history`)
+
+Two tables, because the agent's memory and the applicant's conversation are two different things.
+`agent_checkpoints` is the graph's state — tool calls, their results, pending writes, compressed and
+only meaningful to LangGraph. `conversation_history` is what was *said*: a row per message, written
+by `app/ai_assistant_langchain/history/`.
+
+Each turn is stored as one `TransactWriteItems` — the question and the answer land together or not
+at all. Two `put_item` calls have a moment between them in which the question is stored and the
+answer is not, and a request that dies there leaves that behind for good: a conversation that reads
+as unanswered, or, the other way round, a reply to something nobody asked. A turn paused on an
+approval stores its question alone and its answer when the decision comes in, and neither is a
+different kind of write.
+
+```
+pk = THREAD#{user_id}      thread_key() in app/core/dynamodb/indexes.py — the checkpointer's too
+sk = {created_at}          UTC, fixed width, so the sort key is the order the lines were said in
+```
+
+The question's `created_at` is taken *before* the agent runs, the answer's when it is written. That
+is what keeps a slow turn in its place: a second question asked while the first was still being
+answered is filed where the applicant asked it, not after the answer that arrived later.
+
+`GET /langchain-assistant/{user_id}/history` replays that table as `[{role, content}]`, oldest
+first — what a chat client needs to redraw a conversation it did not have open.
+
+```bash
+curl http://127.0.0.1:8000/langchain-assistant/11111111-1111-1111-1111-111111111111/history
+```
+
+The replay used to be reconstructed from the graph's state, and that meant a rule per LangGraph
+detail standing between the applicant and what they were told: drop the tool calls and their
+results, keep the result of a `return_direct` tool because that one *is* the answer, drop the empty
+assistant turns, and inherit whatever a summarisation step had done to the messages before them.
+The table stores the two lines that were actually exchanged, so a replay is now a query. An id
+nobody has written under answers `[]` rather than 404: a conversation that has not started is not a
+missing resource, and a client opening a fresh thread would otherwise have to treat its own first
+visit as an error.
+
+```bash
+aws dynamodb query --table-name conversation_history --endpoint-url http://localhost:8001 \
+  --key-condition-expression 'pk = :t' \
+  --expression-attribute-values '{":t":{"S":"THREAD#11111111-1111-1111-1111-111111111111"}}'
+
+make test-history   # the table, the repository and the service; needs the local DynamoDB up
+```
+
+Like `agent_checkpoints`, this table is created only when missing and never re-seeded — `make seed`
+does not cost anybody their conversation. Retention is a follow-up for both.
+
+A thread paused on an approval replays *with* it: the last row carries a `pending` array in the
+same shape `POST /langchain-assistant` returns, and its `content` is the same sentence a live turn
+would have shown. That row is appended rather than stored, because a pause is not something that
+was said — it is addressed to a reviewer, it is built from the live interrupt (`aget_state`), and it
+stops being true the moment the approval is answered. Both paths go through one `_describe_pause`,
+so a reviewer who reloaded answers the same thing, described the same way, as one who did not.
+
+That closes what would otherwise be a dead end: a client that reloaded mid-review saw a
+conversation that had simply stopped, could not answer an approval it could not see, and could not
+send a new message either, because a paused thread refuses one.
+
+`pending` is absent on every ordinary row, so a client that ignores it still reads a correct
+transcript.
+
+### The agent's state (`agent_checkpoints`)
+
+Everything for one thread lives in one partition, under three sort-key prefixes named after
+`PostgresSaver`'s three tables:
 
 ```
 pk = THREAD#{user_id}
@@ -249,6 +315,39 @@ behind the compression, and what was rejected on the way are in
 ```bash
 make test-checkpointer   # the saver's own suite; needs the local DynamoDB up
 ```
+
+## Tracing with LangSmith
+
+The LangSmith SDK configures itself from the process environment, so export the four names before
+starting the app:
+
+```bash
+export LANGSMITH_TRACING=true
+export LANGSMITH_API_KEY=lsv2_pt_...          # https://smith.langchain.com → Settings → API keys
+export LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+export LANGSMITH_PROJECT=university-assistant
+```
+
+`.env` on its own does not reach the SDK: pydantic-settings loads that file into `Settings` and never
+into `os.environ`. Exporting covers both — pydantic-settings reads the environment first, so
+`app/settings.py` sees the same values.
+
+All four are declared without defaults, so the app refuses to start until they are set. To run
+untraced, set `LANGSMITH_TRACING=false` and leave the other three empty.
+
+Nothing is instrumented by hand — LangChain and LangGraph already emit a run tree, so one request
+arrives in LangSmith as the whole thing: the router's classification, the subagent it chose, every
+tool call with its arguments and its result, and, for `compare_programs`, one `gather` branch per
+programme next to each other with `merge` waiting on all of them. That is the easiest way to *see*
+the fan-out:
+the branches overlap on the trace's timeline instead of running end to end.
+
+One thing it does not cover: the CrewAI flow (`crewai run`) goes through its own entrypoint, not
+`create_app()`, so it is not traced by this.
+
+The evaluation suites drive the app through `create_app()`, so with tracing on a `make eval-*` run
+lands in the same project — useful for reading a failed golden, and worth turning off when it is
+not what you want.
 
 ## Evaluating the RAG pipeline
 
@@ -344,6 +443,15 @@ Thresholds for both are provisional: neither suite has been run against a live a
 `config.py` marks each new threshold as unmeasured. Until several runs on unchanged code produce a
 spread, read the score table rather than the colour. Design:
 [`docs/superpowers/specs/2026-08-11-multiturn-agent-evaluation-design.md`](docs/superpowers/specs/2026-08-11-multiturn-agent-evaluation-design.md).
+
+### Running the same cases by hand
+
+[`docs/manual-testing.md`](docs/manual-testing.md) is every question from the suites above as a
+copy-paste script against a running server — the goldens, the routing questions, the four
+conversations, the five booking flows through the approval gate, and the bias probes. Same cases, no
+judges and no OpenAI bill for scoring, so it is the loop to use while iterating on a prompt or a tool
+description. It also lists what the suites do *not* cover — other languages, input validation, the
+approval protocol's error paths, lookup misses, prompt injection — which is only reachable by hand.
 
 ## Understanding the project
 

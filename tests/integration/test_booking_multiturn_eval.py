@@ -27,7 +27,7 @@ from tests.integration.thread_state import get_tool_responses
 pytestmark = [
     pytest.mark.evaluation,
     pytest.mark.asyncio(loop_scope='session'),
-    pytest.mark.usefixtures('eval_checkpointer'),
+    pytest.mark.usefixtures('eval_checkpointer', 'eval_conversations_table'),
 ]
 
 logger = logging.getLogger(__name__)

@@ -57,6 +57,7 @@ def get_table_specs() -> TableSpecs:
         'slots': TableSpec(name=settings.DYNAMODB_SLOTS_TABLE, gsi_numbers=[1, 2], ttl_attribute='expires_at'),
         'issues': TableSpec(name=ISSUES_TABLE, gsi_numbers=[1]),
         'checkpoints': TableSpec(name=settings.DYNAMODB_CHECKPOINTS_TABLE, gsi_numbers=[]),
+        'conversations': TableSpec(name=settings.DYNAMODB_CONVERSATIONS_TABLE, gsi_numbers=[]),
     }
 
 

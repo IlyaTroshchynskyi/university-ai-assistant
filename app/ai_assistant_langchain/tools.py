@@ -3,11 +3,21 @@ import logging
 from langchain_core.tools import tool
 
 from app.ai_assistant.university_knowladge.knowledge_service import get_knowledge_service, join_passages
-from app.ai_assistant_langchain.agent_schemas import FindPersonToolInput, FindPlaceToolInput, RetrieverToolInput
+from app.ai_assistant_langchain.agent_schemas import (
+    CompareProgramsToolInput,
+    FindPersonToolInput,
+    FindPlaceToolInput,
+    RetrieverToolInput,
+)
+from app.ai_assistant_langchain.graphs.compare_programs.graph import get_compare_programs_graph
 from app.api.v1.places.places_repository import open_places_repository
 from app.api.v1.professors.professors_repository import open_professors_repository
 
 logger = logging.getLogger(__name__)
+
+# How many programmes one comparison covers. Not a schema constraint: ``compare_programs`` is
+# ``return_direct``, so a list rejected by pydantic would reach the applicant as its error text.
+MAX_PROGRAMS = 5
 
 
 @tool(args_schema=RetrieverToolInput)
@@ -61,3 +71,64 @@ async def find_place(name: str) -> dict | str:
         return f'No campus place found with the name {name!r}.'
 
     return place.model_dump()
+
+
+@tool(args_schema=CompareProgramsToolInput, return_direct=True)
+async def compare_programs(programs: list[str]) -> str:
+    """Compare named study programmes side by side — focus, courses, duration, admission
+    requirements, tuition and career outcomes.
+
+    Use this when the message weighs programmes against each other: "Economics or Business
+    Analytics?", "what is the difference between Data Science and Cybersecurity?", "Economics vs
+    Business Analytics vs Data Science", "which of them is cheaper?". It looks all of them up at
+    once and returns the finished side-by-side answer, so it replaces the `retriever` calls you
+    would otherwise make — do not call `retriever` for any of them, before this tool or after it.
+
+    Pass every programme the applicant named, in the order they named them: two, three, up to five.
+    A question about a single programme goes to `retriever`, however much detail it asks for, and so
+    does a comparison of anything that is not a programme — scholarships, faculties, campus places.
+
+    What this returns is the finished answer, and the applicant reads it exactly as it comes back:
+    the turn ends here, and there is no later step in which you could rewrite it, shorten it or add
+    to it. So call it once you have all the programme names — and not before.
+    """
+    # Case-insensitively unique, in the order given. Two names for one programme is not a comparison:
+    # each duplicate would search the same thing again and take a second block in a prompt whose
+    # every rule is about keeping the programmes apart.
+    unique: dict[str, str] = {}
+    for program in programs:
+        unique.setdefault(program.strip().casefold(), program.strip())
+
+    named = [program for program in unique.values() if program]
+    logger.info('CompareProgrammes %s', ' vs '.join(repr(program) for program in named) or '(nothing named)')
+
+    # Answered here rather than by a ``min_length`` on the schema: this tool is ``return_direct``, so
+    # a rejected argument list would reach the applicant as pydantic's error text.
+    if len(named) < 2:
+        if named:
+            return f'{named[0]} is one programme, not two. Which other one should I compare it with?'
+        return 'Which programmes would you like me to compare?'
+
+    # Every extra programme is another embedding, another search and another block in the merge
+    # prompt, and a side-by-side answer stops being readable long before the cost stops growing.
+    compared, dropped = named[:MAX_PROGRAMS], named[MAX_PROGRAMS:]
+
+    graph = get_compare_programs_graph()
+    state = await graph.ainvoke({'programs': compared})
+    comparison: str = state['comparison']
+
+    if not dropped:
+        return comparison
+
+    return (
+        f'{comparison}\n\nI compared the first {MAX_PROGRAMS} — {", ".join(dropped)} '
+        f'{"is" if len(dropped) == 1 else "are"} not in here. Ask again for '
+        f'{"it" if len(dropped) == 1 else "them"} and I will cover '
+        f'{"it" if len(dropped) == 1 else "them"}.'
+    )
+
+
+ASSISTANT_TOOLS = [retriever, find_person, find_place, compare_programs]
+
+
+DIRECT_ANSWER_TOOLS = frozenset(item.name for item in ASSISTANT_TOOLS if item.return_direct)

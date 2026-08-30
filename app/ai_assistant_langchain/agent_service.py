@@ -110,7 +110,7 @@ class AgentService:
         makes deliberately: a stalled conversation is recoverable, a booking nobody knows was
         dropped is not.
         """
-        request = await self._find_paused_request(user_id)
+        request = await self.find_paused_request(user_id)
         if request is None:
             return
 
@@ -120,8 +120,12 @@ class AgentService:
             f'new message — send `decisions` for the pending action(s) first.'
         )
 
-    async def _find_paused_request(self, user_id: str) -> HITLRequest | None:
-        """The approval this thread is stopped on, or ``None`` when it is not stopped at all."""
+    async def find_paused_request(self, user_id: str) -> HITLRequest | None:
+        """The approval this thread is stopped on, or ``None`` when it is not stopped at all.
+
+        Public because replaying a thread needs it too: the pause is state the client has to see,
+        not merely a guard on the next turn.
+        """
         state = await self._graph.aget_state(self._config(user_id))
         for task in state.tasks:
             for interrupt in task.interrupts:
@@ -130,7 +134,7 @@ class AgentService:
         return None
 
     async def _get_paused_request(self, user_id: str) -> HITLRequest:
-        request = await self._find_paused_request(user_id)
+        request = await self.find_paused_request(user_id)
         if request is None:
             raise ConflictingStatusError('This thread is not paused on anything — there is nothing to decide.')
 

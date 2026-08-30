@@ -63,6 +63,7 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ['DYNAMODB_GROUPS_TABLE'] = 'academic_groups_test'
     os.environ['DYNAMODB_SLOTS_TABLE'] = 'appointment_slots_test'
     os.environ['DYNAMODB_CHECKPOINTS_TABLE'] = 'agent_checkpoints_test'
+    os.environ['DYNAMODB_CONVERSATIONS_TABLE'] = 'conversation_history_test'
 
     # Imported here, after the env is in place, so nothing can build (and cache) a Settings that
     # still points at the development tables.
@@ -189,6 +190,14 @@ async def slots_table(dynamo_client: DynamoDBClient, tables: TableSpecs) -> Asyn
 @pytest.fixture
 async def issues_table(dynamo_client: DynamoDBClient, tables: TableSpecs) -> AsyncGenerator[DynamoDBService, None]:
     async with get_dynamo_base_service(dynamo_client, tables['issues']) as table:
+        yield table
+
+
+@pytest.fixture
+async def conversations_table(
+    dynamo_client: DynamoDBClient, tables: TableSpecs
+) -> AsyncGenerator[DynamoDBService, None]:
+    async with get_dynamo_base_service(dynamo_client, tables['conversations']) as table:
         yield table
 
 

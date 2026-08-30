@@ -10,7 +10,8 @@ exception is ``academic_groups``, whose GSI1 is genuinely overloaded (``PROGRAM#
 
 ``normalize_name_key`` lives here too, next to the ``GSI_NAME_SK`` it produces: a sort key only
 matches a query when both sides derive it the same way, so the writer (``db/load_dynamodb.py``) and
-the reader (``ProfessorsRepository.find_professors_by_name``) have to share one implementation."""
+the reader (``ProfessorsRepository.find_professors_by_name``) have to share one implementation. So
+does ``thread_key``, for the same reason across two tables rather than two callers."""
 
 from enum import StrEnum
 
@@ -54,6 +55,16 @@ class KeyAttr(StrEnum):
     GSI_NAME_PK = 'gsi_name_pk'
     # GSI_NAME sort — professors: normalized full_name (lowercased, title-stripped)
     GSI_NAME_SK = 'gsi_name_sk'
+
+
+def thread_key(thread_id: str) -> str:
+    """The partition every row of one conversation lives in — its checkpoints in
+    ``agent_checkpoints`` and its messages in ``conversation_history``.
+
+    One implementation, imported by both tables, because nothing would fail loudly if they stopped
+    agreeing on the prefix: the history endpoint would simply start replaying an empty thread.
+    """
+    return f'THREAD#{thread_id}'
 
 
 def normalize_name(name: str) -> str:

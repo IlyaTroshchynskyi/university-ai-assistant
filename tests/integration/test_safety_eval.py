@@ -10,7 +10,7 @@ from tests.integration.metrics import assert_metrics, bias_metrics
 pytestmark = [
     pytest.mark.evaluation,
     pytest.mark.asyncio(loop_scope='session'),
-    pytest.mark.usefixtures('eval_checkpointer', 'knowledge_base_populated'),
+    pytest.mark.usefixtures('eval_checkpointer', 'knowledge_base_populated', 'eval_conversations_table'),
 ]
 
 ENDPOINT = '/langchain-assistant'

@@ -19,18 +19,23 @@ from tests.integration.metrics import assert_metrics, routing_metrics
 # Session loop for the same reason as the agent suite: the tests drive the app through the
 # session-scoped ``not_auth_client``, and the agent's cached clients bind to whatever loop the
 # first call ran on.
-# ``eval_checkpointer`` but not ``knowledge_base_populated``: both tool backends are stubbed, so
-# nothing here reaches Qdrant — but the graph still runs, and the graph still writes checkpoints.
+# ``eval_checkpointer`` but not ``knowledge_base_populated``: every tool backend is stubbed, the
+# compare graph's own retrieval included, so nothing here reaches Qdrant — but the graph still runs,
+# and the graph still writes checkpoints.
 pytestmark = [
     pytest.mark.evaluation,
     pytest.mark.asyncio(loop_scope='session'),
-    pytest.mark.usefixtures('eval_checkpointer'),
+    pytest.mark.usefixtures('eval_checkpointer', 'eval_conversations_table'),
 ]
 
 ENDPOINT = '/langchain-assistant'
 PATH_TO_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.tools.get_knowledge_service'
 PATH_TO_PROFESSORS_REPOSITORY = 'app.ai_assistant_langchain.tools.open_professors_repository'
 PATH_TO_PLACES_REPOSITORY = 'app.ai_assistant_langchain.tools.open_places_repository'
+# The compare graph searches the knowledge base itself rather than through the `retriever` tool, so
+# its own module-level lookup is a second place to stub — patching the tool's leaves both gather
+# branches talking to a Qdrant this suite is not allowed to need.
+PATH_TO_COMPARE_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.graphs.compare_programs.nodes.get_knowledge_service'
 
 
 @dataclass
@@ -51,6 +56,11 @@ ROUTING_CASES = [
     RoutingCase('Where is the Cafeteria?', ['find_place']),
     # # Everything factual that is not a named person or place.
     RoutingCase('How much does the Computer Science bachelor cost per year?', ['retriever']),
+    # Two named programmes weighed against each other. The one case the compare graph exists for:
+    # the whole question goes to `compare_programs`, which fans out to both programmes at once —
+    # `retriever` twice in a row would be the same answer built the slow way, and reads here as a
+    # failure.
+    RoutingCase('Compare the Economics and Business Analytics programs.', ['compare_programs']),
     # # Small talk: the first prompt bullet says answer directly. A lookup here is money spent on a
     # # greeting, and it is the regression a tool description written too broadly causes.
     RoutingCase('Hi there!', []),
@@ -74,6 +84,35 @@ class StubKnowledgeService:
 
     async def search(self, query: str) -> list[ScoredPoint]:
         return [ScoredPoint(id=1, version=0, score=1.0, payload={'text': PASSAGE})]
+
+
+PROGRAM_PASSAGES = {
+    'Economics': (
+        'The BSc in Economics runs three years. Annual tuition is $19,000. It covers micro- and '
+        'macroeconomics, econometrics and public policy, and leads to analyst and policy roles.'
+    ),
+    'Business Analytics': (
+        'The BSc in Business Analytics runs three years. Annual tuition is $21,500. It covers '
+        'statistics, data visualisation and business modelling, and leads to data analyst roles.'
+    ),
+}
+
+
+class StubProgramKnowledgeService:
+    """The retrieval behind the compare graph: a different passage per programme.
+
+    Its own stub rather than ``StubKnowledgeService``, which answers everything with ``PASSAGE``:
+    both gather branches search, and handing both the same text gives the model two programmes that
+    read identically — precisely when it goes for a second opinion from ``retriever`` and the
+    assertion fails on a tool the agent called only because the fixture confused it.
+    """
+
+    async def search(self, query: str) -> list[ScoredPoint]:
+        text = next(
+            (passage for program, passage in PROGRAM_PASSAGES.items() if program.lower() in query.lower()),
+            PASSAGE,
+        )
+        return [ScoredPoint(id=1, version=0, score=1.0, payload={'text': text})]
 
 
 class StubProfessorsRepository:
@@ -125,6 +164,7 @@ class TestToolRouting(TestBaseClientClass):
     def _stub_tool_backends(self) -> Generator[None, None, None]:
         with (
             patch(PATH_TO_KNOWLEDGE_SERVICE, return_value=StubKnowledgeService()),
+            patch(PATH_TO_COMPARE_KNOWLEDGE_SERVICE, return_value=StubProgramKnowledgeService()),
             patch(PATH_TO_PROFESSORS_REPOSITORY, stub_professors_repository),
             patch(PATH_TO_PLACES_REPOSITORY, stub_places_repository),
         ):

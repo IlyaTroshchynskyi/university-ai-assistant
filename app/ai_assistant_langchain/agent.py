@@ -8,13 +8,11 @@ from langchain.agents.middleware import (
     SummarizationMiddleware,
 )
 from langchain.agents.middleware.types import AgentState
-from langchain.chat_models import init_chat_model
-from langchain.chat_models.base import _ConfigurableModel
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import ToolCall
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
+from app.ai_assistant_langchain.agent_model import get_model_factory
 from app.ai_assistant_langchain.agent_schemas import CustomContext
 from app.ai_assistant_langchain.booking_tools import (
     book_appointment,
@@ -27,17 +25,16 @@ from app.ai_assistant_langchain.prompts import (
     build_booking_system_prompt,
     MAIN_CHAT_PROMPT,
 )
-from app.ai_assistant_langchain.tools import find_person, find_place, retriever
-from app.settings import get_settings
+from app.ai_assistant_langchain.tools import ASSISTANT_TOOLS
 
 
 @lru_cache
 def create_assistant_agent() -> CompiledStateGraph:
-    model = _get_model_factory()
+    model = get_model_factory()
     return create_agent(
         model=model,
         system_prompt=MAIN_CHAT_PROMPT,
-        tools=[retriever, find_person, find_place],
+        tools=ASSISTANT_TOOLS,
         context_schema=CustomContext,
         # NO checkpointer — `build_main_graph` owns it. A subgraph compiled with a saver of its own
         # runs on its own thread, and the parent's thread_id and interrupt plumbing break with it.
@@ -88,7 +85,7 @@ def _describe_cancellation(tool_call: ToolCall, state: AgentState, runtime: Runt
 @lru_cache
 def create_booking_agent() -> CompiledStateGraph:
     return create_agent(
-        model=_get_model_factory(),
+        model=get_model_factory(),
         tools=[list_free_slots, find_earliest_open_slots, list_my_bookings, book_appointment, cancel_appointment],
         context_schema=CustomContext,
         middleware=[
@@ -107,17 +104,4 @@ def create_booking_agent() -> CompiledStateGraph:
             ),
         ],
         # NO checkpointer — the main graph owns it
-    )
-
-
-@lru_cache
-def _get_model_factory() -> BaseChatModel | _ConfigurableModel:
-    settings = get_settings()
-    return init_chat_model(
-        model=settings.MODEL_NAME,
-        temperature=0,
-        timeout=30,
-        max_tokens=1000,
-        max_retries=2,
-        api_key=settings.OPENAI_API_KEY,
     )

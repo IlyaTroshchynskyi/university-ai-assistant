@@ -3,6 +3,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
+from app.ai_assistant_langchain.history.schemas import Role
+
 DecisionType = Literal['approve', 'edit', 'reject']
 
 ToolArgs = dict[str, str | int]
@@ -59,6 +61,23 @@ class PendingApproval(BaseModel):
     action: str
     args: ToolArgs
     allowed_decisions: list[DecisionType]
+
+
+class HistoryMessage(BaseModel):
+    """One line of a stored conversation, as a client replays it."""
+
+    role: Role
+    content: str
+    pending: list[PendingApproval] | None = Field(
+        default=None,
+        description=(
+            'Set on the last row when the thread is paused: the actions it is waiting on, in the '
+            'same shape `POST /langchain-assistant` returns them. A client that reloaded can then '
+            'redraw the approval and answer it. Absent on every ordinary row, so a backend with no '
+            'gated actions never sends it and a client that ignores it still reads a correct '
+            'transcript.'
+        ),
+    )
 
 
 class ChatSchemaOut(BaseModel):
