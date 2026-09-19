@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     # per thread. This is what `GET /langchain-assistant/{user_id}/history` replays.
     DYNAMODB_CONVERSATIONS_TABLE: str = 'conversation_history'
 
+    DRAIN_TIMEOUT_SECONDS: float = 25.0
+
     LANGSMITH_TRACING: bool
     LANGSMITH_API_KEY: str
     LANGSMITH_ENDPOINT: str

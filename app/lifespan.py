@@ -4,6 +4,8 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 
 from app.ai_assistant_langchain.checkpointer.saver import get_checkpointer
+from app.ai_assistant_langchain.runs import wait_for_streaming_turns
+from app.settings import get_settings
 
 
 @asynccontextmanager
@@ -16,4 +18,7 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     first message.
     """
     async with get_checkpointer().opened():
-        yield
+        try:
+            yield
+        finally:
+            await wait_for_streaming_turns(get_settings().DRAIN_TIMEOUT_SECONDS)

@@ -221,6 +221,41 @@ curl -X POST http://127.0.0.1:8000/langchain-assistant -H 'Content-Type: applica
   -d '{"user_id": "11111111-1111-1111-1111-111111111111", "query": "How much does it cost?"}'
 ```
 
+### Streaming
+
+The same endpoint serves two representations, and the `Accept` header is the switch:
+`Accept: text/event-stream` gets Server-Sent Events, anything else gets the JSON above, unchanged.
+
+    make stream_turn
+
+| `event:` | `data:` | When |
+|---|---|---|
+| `token` | `{"text": "…"}` | zero or more, in order |
+| `done` | the full `ChatSchemaOut` | the turn finished |
+| `pending` | the full `ChatSchemaOut`, `status: "pending_approval"` | the graph paused on an approval |
+| `error` | `{"detail": "…"}` | the turn failed after the response had started |
+
+**Tokens are a preview, `done` is the truth.** Render tokens as they arrive, then replace the
+message with `done.message`: a failed tool replaces the answer wholesale, discarding whatever was
+streamed before it failed. Tokens are also not all small — a `compare_programs` answer streams from
+the tool's own graph, but falls back to the whole comparison in a single `token` when that graph
+streams nothing (`docs/specs/streaming-responses.md` §4.4).
+
+Two behaviours follow from the turn outliving its request:
+
+- a turn is recorded even if the caller hangs up mid-answer — the graph had already checkpointed it,
+  so the transcript would otherwise disagree with the agent's own memory;
+- re-asking on that same thread while the run is still going gets a `409` for a few seconds —
+  whichever representation the re-ask uses, streaming or JSON.
+
+That 409 is held in the process's own memory, so **run a single worker**. Under
+`uvicorn --workers 2`, or several replicas, a retry that lands on another process sees nothing in
+flight and starts a second turn on a thread the first one is still writing to.
+`docs/specs/streaming-responses.md` §7.3 has the alternative and why it is not taken yet.
+
+`docs/manual-testing.md` has the `curl -N` scripts, and `docs/specs/streaming-responses.md` is the
+design.
+
 ### The transcript (`conversation_history`)
 
 Two tables, because the agent's memory and the applicant's conversation are two different things.

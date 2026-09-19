@@ -8,6 +8,14 @@ run_app:
 	uvicorn app.main:app --reload --port=8000
 
 
+# One streaming turn by hand. `-N` is what makes curl print events as they arrive instead of
+# buffering the whole response — without it a working stream looks exactly like a broken one.
+stream_turn:
+	curl -N -X POST http://127.0.0.1:8000/langchain-assistant \
+	  -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
+	  -d '{"user_id": "11111111-1111-1111-1111-111111111111", "query": "How long is the CS bachelor?"}'
+
+
 test-checkpointer:
 	pytest tests/dynamodb/test_checkpointer.py -v
 
