@@ -27,3 +27,36 @@ class StubKnowledgeService:
 
 def tool_call_reply(query: str, call_id: str = 'call_1') -> AIMessage:
     return AIMessage(content='', tool_calls=[{'id': call_id, 'name': 'retriever', 'args': {'query': query}}])
+
+
+def booking_tool_call_reply(call_id: str = 'call_book_1') -> AIMessage:
+    """A `book_appointment` call — what the booking subagent pauses on for a human decision.
+
+    Every argument ``_describe_booking`` reads is present: the middleware renders the sentence a
+    reviewer sees from them, and a missing one is a ``KeyError`` inside the interrupt rather than a
+    pause.
+    """
+    return AIMessage(
+        content='',
+        tool_calls=[
+            {
+                'id': call_id,
+                'name': 'book_appointment',
+                'args': {
+                    'slot_id': 101,
+                    'date': '2026-10-06',
+                    'start_time': '09:00',
+                    'applicant_email': 'applicant@example.com',
+                    'topic': 'scholarship options',
+                },
+            }
+        ],
+    )
+
+
+def compare_tool_call_reply(*programs: str, call_id: str = 'call_compare_1') -> AIMessage:
+    """A `compare_programs` call — the `return_direct` tool, which answers the turn itself."""
+    return AIMessage(
+        content='',
+        tool_calls=[{'id': call_id, 'name': 'compare_programs', 'args': {'programs': list(programs)}}],
+    )
