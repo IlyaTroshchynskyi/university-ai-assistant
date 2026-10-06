@@ -73,6 +73,8 @@ The **Table** column is as of `03-table-split.md`; the key columns are unchanged
 | P14 | A campus place by name | `places` | **Scan** + filter `contains(name_lower, …)` — the filter was always post-read, so the index it ran over bought nothing once the table held places alone |
 | P16 | Every faculty | `faculties` | **Scan** + filter `sk = #META` — cheap now that the table holds ~6 faculties, see 'P16: the one Scan' below |
 | P15 | Professor search **by name** (without knowing the faculty) | `professors` | GSI_NAME: `gsi_name_pk = PROF`, `gsi_name_sk begins_with {name}` |
+| P17 | A group **by name** (the timetable tool is given `CS-1`, not an id) | `academic_groups` | **Scan** + filter `sk = #META`, the name compared in the application — nothing indexes a group by name. Costlier than P14: this table also holds every class row, so the Scan grows with the timetable, not with the number of groups |
+| P18 | Every class (a timetable question naming only a course, or only a weekday) | `academic_groups` | **Scan** + filter `begins_with(sk, SCHED#)` — no index selects classes by course or by weekday alone |
 | P9 | Open slots on a date (topic optional) | `appointment_slots` | base: `pk = {date}`, filter `status = open` (+ `topic`) |
 | P9b | Open slots by status (all dates) | `appointment_slots` | GSI1: `gsi1pk = STATUS#{status}` |
 | P10 | One student's bookings | `appointment_slots` | GSI2: `gsi2pk = STUDENT#{email}` |

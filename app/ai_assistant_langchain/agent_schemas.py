@@ -1,11 +1,13 @@
 # `import datetime`, as in `booking_tools.py`: the tool argument is itself called `date`, and a
 # field of that name shadows the imported class, which stops pydantic at import time.
 import datetime
-from typing import NotRequired, TypedDict
+from typing import Annotated, NotRequired, TypedDict
 
 from langchain_core.messages import BaseMessage
 from langgraph.types import Interrupt
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, BeforeValidator, EmailStr, Field
+
+from app.api.v1.rooms.enums import Weekday
 
 
 class CustomContext(BaseModel):
@@ -36,12 +38,48 @@ class FindPlaceToolInput(BaseModel):
     )
 
 
+def _blank_to_none(value: object) -> object:
+    """A filter of nothing but whitespace is a filter that was not given."""
+    return None if isinstance(value, str) and not value.strip() else value
+
+
+OptionalFilter = Annotated[str | None, BeforeValidator(_blank_to_none)]
+
+
+class GetScheduleToolInput(BaseModel):
+    group: OptionalFilter = Field(
+        default=None,
+        description=(
+            "The student group's code, exactly as the applicant gave it, e.g. 'CS-1'. Leave it out "
+            'when the question names no group.'
+        ),
+    )
+    professor: OptionalFilter = Field(
+        default=None,
+        description=(
+            'The full name or first name of the professor whose classes are wanted. Leave it out '
+            'when the question names no professor.'
+        ),
+    )
+    course: OptionalFilter = Field(
+        default=None,
+        description=(
+            "The course's name, or a distinctive part of it, e.g. 'Data Structures'. Leave it out "
+            'when the question names no course.'
+        ),
+    )
+    weekday: Weekday | None = Field(
+        default=None,
+        description=(
+            "The day of the week, as one of 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'. Leave it "
+            'out when the question names no day.'
+        ),
+    )
+
+
 class CompareProgramsToolInput(BaseModel):
     """Input schema for the CompareProgramsTool."""
 
-    # No ``min_length=2``, deliberately. The tool is ``return_direct``, so a schema this rejects ends
-    # the turn on pydantic's error text — the applicant reads "programs: List should have at least 2
-    # items". A short list is answered inside the tool, in a sentence written for them.
     programs: list[str] = Field(
         description=(
             'Every programme to compare, in the order the applicant named them, each named as they '
