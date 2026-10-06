@@ -10,6 +10,7 @@ from app.api.v1.faculty.repository import FacultyRepository
 from app.api.v1.faculty.schemas import FacultyCreate, FacultyItem
 from app.api.v1.programs.repository import ProgramsRepository
 from app.api.v1.programs.schemas import ProgramItem
+from app.api.v1.rooms.enums import Weekday
 from app.api.v1.rooms.repository import RoomsRepository
 from app.api.v1.rooms.schemas import CreateRoom, Room
 from app.core.dynamodb.base_items import DEPENDANTS
@@ -20,6 +21,7 @@ from tests.factories.group_factory import GroupRow
 from tests.factories.place_factory import PlaceFactory, PlaceRow
 from tests.factories.professor_factory import ProfessorFactory, ProfessorRow
 from tests.factories.program_factory import ProgramCreationFactory
+from tests.factories.schedule_factory import ClassRow, CourseRow, NamedGroupRow
 from tests.factories.slot_factory import SlotRow
 
 
@@ -78,6 +80,35 @@ async def create_test_place_row(db_client: DynamoDBClient, **overrides: str | in
     """Seed the campus place the multi-turn evaluation asks about."""
     row = PlaceRow.from_entity(PlaceFactory.build(**overrides))
     await table_service(db_client, get_settings().DYNAMODB_PLACES_TABLE).put_item(row)
+    return row
+
+
+async def create_test_named_group_row(db_client: DynamoDBClient, name: str) -> NamedGroupRow:
+    """Seed a group a timetable lookup can find by name."""
+    row = NamedGroupRow.build(name)
+    await table_service(db_client, get_settings().DYNAMODB_GROUPS_TABLE).put_item(row)
+    return row
+
+
+async def create_test_course_row(db_client: DynamoDBClient, name: str, professor_id: str) -> CourseRow:
+    row = CourseRow.build(name, professor_id)
+    await table_service(db_client, get_settings().DYNAMODB_COURSES_TABLE).put_item(row)
+    return row
+
+
+async def create_test_class_row(
+    db_client: DynamoDBClient,
+    course_id: str,
+    group_id: str,
+    professor_id: str,
+    room_id: str,
+    weekday: Weekday,
+    start_time: str,
+    end_time: str,
+) -> ClassRow:
+    """Seed one weekly class under its group's partition."""
+    row = ClassRow.build(course_id, group_id, professor_id, room_id, weekday, start_time, end_time)
+    await table_service(db_client, get_settings().DYNAMODB_GROUPS_TABLE).put_item(row)
     return row
 
 

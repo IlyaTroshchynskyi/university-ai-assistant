@@ -18,8 +18,6 @@ from app.core.dynamodb.base_items import TableItem
 
 
 class GroupCreate(BaseModel):
-    """``groups.json`` — a student cohort enrolled on one programme."""
-
     name: str = Field(min_length=2, max_length=30)  # e.g. 'CS-1'
     program_id: str
 
@@ -28,9 +26,11 @@ class Group(GroupCreate):
     id: str
 
 
-class ProfessorCreate(BaseModel):
-    """``professors.json`` — teaching staff, each with an office and consultation hours."""
+class GroupItem(TableItem):
+    entity: ClassVar[str] = 'GROUP'
 
+
+class ProfessorCreate(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
     title: ProfessorTitle
     faculty_id: str
@@ -43,9 +43,11 @@ class Professor(ProfessorCreate):
     id: str
 
 
-class CourseCreate(BaseModel):
-    """``courses.json`` — a taught course, owned by a faculty and run by one professor."""
+class ProfessorItem(TableItem):
+    entity: ClassVar[str] = 'PROF'
 
+
+class CourseCreate(BaseModel):
     name: str = Field(min_length=2, max_length=120)
     faculty: str = Field(min_length=2, max_length=100)  # faculty *name*, not id
     professor_id: str
@@ -53,6 +55,10 @@ class CourseCreate(BaseModel):
 
 class Course(CourseCreate):
     id: str
+
+
+class CourseItem(TableItem):
+    entity: ClassVar[str] = 'COURSE'
 
 
 class CreateRoom(BaseModel):

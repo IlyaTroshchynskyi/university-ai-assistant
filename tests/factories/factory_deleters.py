@@ -1,8 +1,14 @@
 from types_aiobotocore_dynamodb import DynamoDBClient
 
 from app.api.v1.faculty.repository import FacultyRepository
+from app.api.v1.rooms.repository import RoomsRepository
 from app.core.enums import DeleteOutcome
 from app.settings import get_settings
+
+
+async def delete_test_room(room_id: str, db_client: DynamoDBClient) -> None:
+    repo = RoomsRepository(db_client, get_settings())
+    assert await repo.delete_room(room_id), 'room deletion failed — there was no such room'
 
 
 async def delete_test_faculty(faculty_id: str, db_client: DynamoDBClient) -> None:

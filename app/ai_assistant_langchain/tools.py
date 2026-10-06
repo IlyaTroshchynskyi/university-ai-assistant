@@ -7,17 +7,28 @@ from app.ai_assistant_langchain.agent_schemas import (
     CompareProgramsToolInput,
     FindPersonToolInput,
     FindPlaceToolInput,
+    GetScheduleToolInput,
     RetrieverToolInput,
 )
 from app.ai_assistant_langchain.graphs.compare_programs.graph import get_compare_programs_graph
 from app.api.v1.places.places_repository import open_places_repository
 from app.api.v1.professors.professors_repository import open_professors_repository
+from app.api.v1.rooms.enums import Weekday
+from app.api.v1.schedule.schedule_service import open_schedule_service
+from app.core.exceptions import NotFoundError
 
 logger = logging.getLogger(__name__)
 
 # How many programmes one comparison covers. Not a schema constraint: ``compare_programs`` is
 # ``return_direct``, so a list rejected by pydantic would reach the applicant as its error text.
 MAX_PROGRAMS = 5
+
+NARROW_THE_TIMETABLE = (
+    'The timetable is looked up by a group, a professor, a course or a weekday, and none of them '
+    'was given. If the question is about weekly classes, ask the applicant which one they mean, '
+    'then call this again with it. If it is about term dates, deadlines or what a programme '
+    'covers, this is the wrong tool: use `retriever` instead.'
+)
 
 
 @tool(args_schema=RetrieverToolInput)
@@ -71,6 +82,51 @@ async def find_place(name: str) -> dict | str:
         return f'No campus place found with the name {name!r}.'
 
     return place.model_dump()
+
+
+@tool(args_schema=GetScheduleToolInput)
+async def get_schedule(
+    group: str | None = None,
+    professor: str | None = None,
+    course: str | None = None,
+    weekday: Weekday | None = None,
+) -> list[dict] | str:
+    """Look up the weekly class timetable: which classes are held, when, where and by whom.
+
+    Use this when the question is about classes — "When is Data Structures for CS-1?", "What does
+    CS-1 have on Monday?", "What does Professor Alan teach?", "Where is Intro to Programming held?".
+    Filter by any of group, professor, course and weekday: pass the ones the question names and
+    leave the rest out. Returns each matching class with its course, group, professor, building,
+    room number, weekday and start and end time, in timetable order.
+
+    A professor's office hours are not classes — those, their office and their email come from
+    `find_person`. The timetable is not in the knowledge base either, so do not look for it with
+    `retriever`.
+    """
+    filters = {'group': group, 'professor': professor, 'course': course, 'weekday': weekday}
+    given = {name: value for name, value in filters.items() if value}
+    logger.info('GetSchedule %s', given or '(no filter)')
+
+    if not given:
+        return NARROW_THE_TIMETABLE
+
+    try:
+        async with open_schedule_service() as service:
+            entries = await service.find_schedule(group=group, professor=professor, course=course, weekday=weekday)
+    except NotFoundError as unknown:
+        return f'{unknown} Check the name with the applicant; this does not mean there are no classes.'
+
+    if not entries:
+        described = ', '.join(f'{name}={str(value)!r}' for name, value in given.items())
+        retry_shorter = (
+            ' A course is matched as part of its stored name, so try a shorter, distinctive part of it '
+            'before telling the applicant there are none.'
+            if course
+            else ''
+        )
+        return f'No classes found for {described}.{retry_shorter}'
+
+    return [entry.model_dump() for entry in entries]
 
 
 @tool(args_schema=CompareProgramsToolInput, return_direct=True)
@@ -128,7 +184,7 @@ async def compare_programs(programs: list[str]) -> str:
     )
 
 
-ASSISTANT_TOOLS = [retriever, find_person, find_place, compare_programs]
+ASSISTANT_TOOLS = [retriever, find_person, find_place, get_schedule, compare_programs]
 
 
 DIRECT_ANSWER_TOOLS = frozenset(item.name for item in ASSISTANT_TOOLS if item.return_direct)

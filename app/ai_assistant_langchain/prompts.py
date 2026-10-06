@@ -16,6 +16,10 @@ MAIN_CHAT_PROMPT = """
     - When the message is about a specific named campus place (library, cafeteria,
       gym, admissions office, dormitory — its location or opening hours), use the
       "find_place" tool.
+    - When the message is about the class timetable — when or where a course is taught,
+      what a group has on a given day, what a professor teaches — use the "get_schedule"
+      tool, passing only the filters the message names. A professor's office hours are
+      not classes: those stay with "find_person".
     - When the message weighs named programs against each other ("Economics or Business
       Analytics?", "how do Data Science and Cybersecurity differ?", "Economics vs Business
       Analytics vs Data Science"), use the "compare_programs" tool and nothing else, and
@@ -232,8 +236,8 @@ consultation appointment with an admissions advisor, or wants to know which appo
 they already have.
 
 "{GraphNode.QA}" — everything else the university gets asked: programs, courses,
-admissions requirements, tuition, scholarships, deadlines, policies, professors, campus
-places and their opening hours — plus greetings, thanks and small talk.
+admissions requirements, tuition, scholarships, deadlines, policies, class timetables,
+professors, campus places and their opening hours — plus greetings, thanks and small talk.
 
 The turns before it are shown below as background. Route the new message, not the
 background. The scheduler asks a lot of short questions, so a message that answers one — a

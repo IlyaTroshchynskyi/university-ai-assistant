@@ -12,6 +12,8 @@ import pytest
 from qdrant_client.models import ScoredPoint
 
 from app.ai_assistant_langchain.main_graph import build_main_graph
+from app.api.v1.rooms.enums import Weekday
+from app.api.v1.schedule.schemas import ScheduleEntry
 from app.core.dynamodb.schemas import Place, Professor
 from tests.conftest import TestBaseClientClass
 from tests.integration.metrics import assert_metrics, routing_metrics
@@ -32,6 +34,7 @@ ENDPOINT = '/langchain-assistant'
 PATH_TO_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.tools.get_knowledge_service'
 PATH_TO_PROFESSORS_REPOSITORY = 'app.ai_assistant_langchain.tools.open_professors_repository'
 PATH_TO_PLACES_REPOSITORY = 'app.ai_assistant_langchain.tools.open_places_repository'
+PATH_TO_SCHEDULE_SERVICE = 'app.ai_assistant_langchain.tools.open_schedule_service'
 # The compare graph searches the knowledge base itself rather than through the `retriever` tool, so
 # its own module-level lookup is a second place to stub — patching the tool's leaves both gather
 # branches talking to a Qdrant this suite is not allowed to need.
@@ -54,6 +57,17 @@ ROUTING_CASES = [
     # # both a professor and a building, so a description that stops distinguishing them fails here.
     RoutingCase('When does the Main Library open?', ['find_place']),
     RoutingCase('Where is the Cafeteria?', ['find_place']),
+    # The class timetable: rows in DynamoDB the handbook does not carry. One question by group and
+    # course, one by professor and weekday, so a description that fits only one of them fails here.
+    RoutingCase('When is Intro to Programming for group CS-1?', ['get_schedule']),
+    RoutingCase('What does Dr. Alan Whitfield teach on Monday?', ['get_schedule']),
+    # The same professor and the same weekday — the very filters `get_schedule` takes — but about
+    # his office hours rather than his classes. This one must stay where it was.
+    RoutingCase("What are Dr. Alan Whitfield's office hours on Monday?", ['find_person']),
+    # Sounds like a timetable and is not one: term dates and a programme's curriculum are in the
+    # handbook, and must not be drawn to `get_schedule` by a date or by the word "courses".
+    RoutingCase('When does the Fall term start and end?', ['retriever']),
+    RoutingCase('Which courses does the Computer Science programme include?', ['retriever']),
     # # Everything factual that is not a named person or place.
     RoutingCase('How much does the Computer Science bachelor cost per year?', ['retriever']),
     # Two named programmes weighed against each other. The one case the compare graph exists for:
@@ -76,6 +90,16 @@ PROFESSOR = Professor(
     office_hours='Mon 14:00-16:00',
 )
 PLACE = Place(id=2, name='Main Library', building='Main Library', floor='1-3', opening_hours='Mon-Fri 08:00-22:00')
+CLASS = ScheduleEntry(
+    course='Intro to Programming',
+    group='CS-1',
+    professor='Dr. Alan Whitfield',
+    building='Turing Hall',
+    room_number=201,
+    weekday=Weekday.MON,
+    start_time='09:00',
+    end_time='10:30',
+)
 PASSAGE = 'Tuition for the BSc in Computer Science is $22,500 per year. Applications close on March 1.'
 
 
@@ -137,6 +161,22 @@ class StubPlacesRepository:
         return PLACE.model_copy(update={'name': name})
 
 
+class StubScheduleService:
+    """Answers every timetable lookup with one class, the filters it was asked by echoed into it —
+    the echo is there for the reason it is in ``StubProfessorsRepository``: asked about one group
+    and handed another's class, the model reads a miss and looks a second time."""
+
+    async def find_schedule(
+        self,
+        group: str | None = None,
+        professor: str | None = None,
+        course: str | None = None,
+        weekday: Weekday | None = None,
+    ) -> list[ScheduleEntry]:
+        asked = {'group': group, 'professor': professor, 'course': course, 'weekday': weekday}
+        return [CLASS.model_copy(update={name: value for name, value in asked.items() if value})]
+
+
 @asynccontextmanager
 async def stub_professors_repository() -> AsyncGenerator[StubProfessorsRepository, None]:
     yield StubProfessorsRepository()
@@ -145,6 +185,11 @@ async def stub_professors_repository() -> AsyncGenerator[StubProfessorsRepositor
 @asynccontextmanager
 async def stub_places_repository() -> AsyncGenerator[StubPlacesRepository, None]:
     yield StubPlacesRepository()
+
+
+@asynccontextmanager
+async def stub_schedule_service() -> AsyncGenerator[StubScheduleService, None]:
+    yield StubScheduleService()
 
 
 async def get_called_tools(user_id: str) -> list[ToolCall]:
@@ -167,6 +212,7 @@ class TestToolRouting(TestBaseClientClass):
             patch(PATH_TO_COMPARE_KNOWLEDGE_SERVICE, return_value=StubProgramKnowledgeService()),
             patch(PATH_TO_PROFESSORS_REPOSITORY, stub_professors_repository),
             patch(PATH_TO_PLACES_REPOSITORY, stub_places_repository),
+            patch(PATH_TO_SCHEDULE_SERVICE, stub_schedule_service),
         ):
             yield
 

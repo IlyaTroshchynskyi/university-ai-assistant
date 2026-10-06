@@ -389,7 +389,8 @@ not what you want.
 Six suites under `tests/integration`, each measuring one layer. Two score the assistant against 23
 hand-written goldens with DeepEval: one measures the retriever on its own (`KnowledgeService.search`,
 production defaults), the other measures the answer `POST /langchain-assistant` gives. A third
-asserts *routing* — which of `retriever`, `find_person`, `find_place` a question sends the agent to.
+asserts *routing* — which of `retriever`, `find_person`, `find_place`, `get_schedule` a question
+sends the agent to.
 The last three are conversational and behavioural, and are described under their own heading below.
 
 ```bash
@@ -412,7 +413,7 @@ Before the first run:
 - **Ingest the handbook.** The two scoring suites search the live `university_kb` collection. A
   session preflight probes it and skips them with a reason if it is empty or unreachable, so an
   un-ingested collection does not show up as 41 failing metrics. Populate it via `POST /documents`.
-  `make eval-routing` needs neither — it stubs both tool backends out.
+  `make eval-routing` needs neither — it stubs every tool backend out.
 - **Have Qdrant up** (`QDRANT_URL`, default `http://localhost:6333`).
 - **Have the local DynamoDB up** for every suite that executes the graph — `eval-agent`,
   `eval-routing`, `eval-multiturn`, `eval-booking`, `eval-safety`. This became a requirement when the agent's
@@ -423,7 +424,7 @@ Before the first run:
   opening hours and are retriever-only since 2026-08-11 — because a failing tool does not raise: the
   agent's `ToolNode` catches it and hands the model an error message, so the answer degrades quietly
   instead of turning red. `make eval-multiturn` is the exception and seeds the two records it looks
-  up; `make eval-routing` stubs both backends and needs neither Qdrant nor real rows.
+  up; `make eval-routing` stubs every backend and needs neither Qdrant nor real rows.
 - **Optionally set `EVAL_MODEL_API_KEY`** in `.env` to bill the judge separately. Leave it unset
   and the judge uses `OPENAI_API_KEY`, same as the app.
 
