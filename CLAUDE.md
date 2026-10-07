@@ -73,6 +73,10 @@ inside the booking agent surface through the endpoint.
 - **QA agent** — `agent.py`, tools in `tools.py` (`ASSISTANT_TOOLS`). `compare_programs` is
   `return_direct` and runs its own graph (`graphs/compare_programs/`), which fans out one retrieval
   per programme with `Send` and merges.
+  `check_scholarship` reads nothing: the handbook's scholarship rules are code in
+  `app/api/v1/scholarships/scholarship_rules.py`, so a rule that changes in the handbook has to
+  change there too — `TestRulesMatchTheHandbook` fails when the two drift. A faculty added through
+  the API has to be added to the `Faculty` enum next to it as well, or the tool rejects it.
 - **Booking agent** — tools in `booking_tools.py`. The two that write (`book_appointment`,
   `cancel_appointment`) sit behind `HumanInTheLoopMiddleware`: the graph interrupts, the API answers
   `status: "pending_approval"`, and the next request carries `decisions` (approve / edit / reject)
@@ -131,6 +135,7 @@ place they become HTTP status codes.
   replies, scripted routes, real graph, real checkpointer. The stub is installed by patching
   `get_model_factory` under **each importing module's own name** and clearing all three graph caches.
 - `tests/dynamodb/` calls savers and services directly against the local DynamoDB.
+- `tests/unit/` is for pure functions and needs neither DynamoDB nor a model.
 - `tests/factories/` holds row models that mirror what the seeder writes, plus creators, getters and
   deleters. Seed rows through these rather than through the agent.
 - Each table has a fixture in `tests/conftest.py` that hands out a service and **empties the table
@@ -152,12 +157,64 @@ place they become HTTP status codes.
 - A tool returns `model_dump()` dicts or a string, never pydantic models: LangChain renders a result
   with `json.dumps` and falls back to `str()`, so a model — or a `datetime.time` — reaches the LLM as
   a Python repr.
-- A tool's docstring and its `Field(description=...)` arguments are the routing signal the model
-  reads. Adding a QA tool means: input schema in `agent_schemas.py`, the tool and `ASSISTANT_TOOLS`
-  in `tools.py`, a bullet in `MAIN_CHAT_PROMPT`, and a stub plus cases in
+- What an agent should do lives in its system prompt; what a tool is lives in the tool. Every rule
+  of behaviour — when to call a tool and when not, what to look up or ask first, what to do with
+  each kind of result — is in `MAIN_CHAT_PROMPT`, which has one section per QA tool, or in the
+  booking prompt, which is laid out by task (finding a time, booking, cancelling, moving). A tool's
+  docstring says only what it does and what its result means, a `Field(description=...)` only what
+  the argument is and its format, and a result only what happened — none of them names another tool
+  or tells the model what to do next. `tests/unit/test_tool_texts.py` holds the part of that a test
+  can check, over `ASSISTANT_TOOLS` and `BOOKING_TOOLS`.
+- Adding a QA tool means: input schema in `agent_schemas.py`, the tool and `ASSISTANT_TOOLS` in
+  `tools.py`, a section in `MAIN_CHAT_PROMPT`, and a stub plus cases in
   `tests/integration/test_tool_routing_eval.py`.
 - Concurrent awaits use `asyncio.TaskGroup`. A failure inside one arrives as an `ExceptionGroup`;
   `checkpointer/saver.py` shows the `except*` unwrap for when the original type has to surface.
+
+## Naming
+
+New code follows these three rules. Code written before them does not all follow yet, so an older
+name is not a precedent.
+
+### Functions get verbs, values get nouns
+
+A function's name starts with a verb — a one-line private helper, a method and a test helper
+included:
+
+- `_money(amount)` -> `_format_money`
+- `scholarship.worth(annual_tuition)` -> `scholarship.compute_worth(annual_tuition)`
+- `verdicts(check)` -> `build_verdict_map`
+
+A bare noun is reserved for a value: `reason = find_scholarship_reason(check, MERIT)`. A property
+reads like a value, so it is named like one (`scholarship.award`, `scholarship.label`), and so is a
+constant (`ONE_SCHOLARSHIP_RULE`, not `ONE_AT_A_TIME`).
+
+### The verb says what the function actually does
+
+`get_` is only for handing back something that already exists: a field, or an object built once and
+cached (`get_settings`, `get_knowledge_service`). Anything that looks something up or transforms it
+takes the verb this repo already uses for that shape of work:
+
+- `find_…`      looks something up by a name or a key and may find nothing - `find_schedule`,
+  `find_professors_by_name`
+- `list_…`      every row of one kind - `list_group_classes`, `list_free_slots`
+- `build_…`     assembles a structure or a prompt - `build_main_graph`, `_build_scholarship_match`
+- `compute_…`   numeric result - `compute_worth`
+- `check_…`     holds a fact against a rule and returns the verdict - `check_scholarship`,
+  `_check_gpa_minimum`
+- `pick_…`      chooses one out of several - `_pick_awarded_scholarship`
+- `parse_…`     unstructured input -> typed shape - `parse_pages`
+- `normalize_…` one spelling out of many - `normalize_name`
+- `format_…`    value -> display string - `_format_money`, `_format_results`
+- `open_…`      an async context manager that owns its client - `open_schedule_service`
+
+`_handle_gpa` is wrong where `_check_gpa_minimum` is right: the verb must name the operation, not
+gesture at it.
+
+### The noun names the domain type
+
+Qualify with the type the function works on: `_build_scholarship_match`, not `_match`;
+`_pick_awarded_scholarship`, not `_pick_awarded`; `find_scholarship_reason`, not `reason_for`.
 
 ## Things that will mislead you
 

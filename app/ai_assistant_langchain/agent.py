@@ -14,13 +14,7 @@ from langgraph.runtime import Runtime
 
 from app.ai_assistant_langchain.agent_model import get_model_factory
 from app.ai_assistant_langchain.agent_schemas import CustomContext
-from app.ai_assistant_langchain.booking_tools import (
-    book_appointment,
-    cancel_appointment,
-    find_earliest_open_slots,
-    list_free_slots,
-    list_my_bookings,
-)
+from app.ai_assistant_langchain.booking_tools import book_appointment, BOOKING_TOOLS, cancel_appointment
 from app.ai_assistant_langchain.prompts import (
     build_booking_system_prompt,
     MAIN_CHAT_PROMPT,
@@ -86,7 +80,7 @@ def _describe_cancellation(tool_call: ToolCall, state: AgentState, runtime: Runt
 def create_booking_agent() -> CompiledStateGraph:
     return create_agent(
         model=get_model_factory(),
-        tools=[list_free_slots, find_earliest_open_slots, list_my_bookings, book_appointment, cancel_appointment],
+        tools=BOOKING_TOOLS,
         context_schema=CustomContext,
         middleware=[
             _booking_prompt,

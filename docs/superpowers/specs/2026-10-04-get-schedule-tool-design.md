@@ -5,6 +5,8 @@
 the five routing cases are written but have not been run — `make eval-routing` calls OpenAI.
 Revised 2026-10-06 after the review in `review-add_schedule_tool-2026-10-04.md` (findings 1, 3, 6,
 8, 9, 11, 12, 13, 14); this document describes the code as it stands after those fixes.
+Revised 2026-10-07: the rules of behaviour moved out of the tool's docstring, argument descriptions
+and result sentences into the `get_schedule` section of `MAIN_CHAT_PROMPT`.
 **Source:** course milestone 06 (`06-schedule-tool.md`), tasks T06.1–T06.3. The bonus T06.4
 (`is_room_free`) is out of scope.
 
@@ -239,9 +241,9 @@ Added to `ASSISTANT_TOOLS`. Not `return_direct`.
 
 | Call | Result |
 |---|---|
-| no filter at all | `NARROW_THE_TIMETABLE`: ask the applicant for a group, a professor, a course or a weekday if the question is about weekly classes — and use `retriever` if it is about term dates, deadlines or a programme's contents. No read is made. |
-| a group or professor nobody is called | the service's `NotFoundError`, as text: `No group is called 'CS-9'. Check the name with the applicant; this does not mean there are no classes.` |
-| nothing matches | `No classes found for group='CS-2', weekday='Mon'.` — the filters that were sent, so the model can relay which of them it was. When `course` was one of them, a sentence follows saying a course is matched as part of its stored name and a shorter part is worth trying. |
+| no filter at all | `NO_TIMETABLE_FILTER`: the timetable is looked up by a group, a professor, a course or a weekday, and none of them was given. No read is made. |
+| a group or professor nobody is called | the service's `NotFoundError`, as text: `No group is called 'CS-9'. This does not mean there are no classes.` |
+| nothing matches | `No classes found for group='CS-2', weekday='Mon'.` — the filters that were sent, so the model can relay which of them it was. When `course` was one of them, a sentence follows saying a course is matched as part of its stored name. |
 | matches | `[entry.model_dump() for entry in entries]` |
 
 No filter is refused rather than answered with everything: the whole timetable is the one result
@@ -256,14 +258,19 @@ looked up — which is why its miss carries a hint instead of an error.
 Dicts rather than the models themselves, as `find_person` and `find_place` do — a list of pydantic
 models reaches the model as `[ScheduleEntry(course='…', …)]`, a list of dicts as JSON.
 
-The docstring is the routing signal. It names the questions the tool is for (when and where a
-course is taught, what a group has on a day, what a professor teaches) and draws the one line that
-is easy to blur: a professor's *office hours* are not classes and stay with `find_person`.
+The docstring states the contract only: what the tool looks up, which filters it takes and what
+it returns. A result says what happened and nothing about what to do next.
 
 ### `app/ai_assistant_langchain/prompts.py`
 
-- `MAIN_CHAT_PROMPT` — one bullet after the `find_place` one: timetable questions go to
-  `get_schedule`, passing only the filters the message names; office hours stay with `find_person`.
+- `MAIN_CHAT_PROMPT` — the `get_schedule` section is the routing signal and holds every rule of
+  behaviour. It names the questions the tool is for (when and where a course is taught, what a
+  group has on a day, what a professor teaches), says to pass only the filters the message names,
+  and draws the one line that is easy to blur: a professor's *office hours* are not classes and
+  stay with `find_person`. It also says what to do with each result that is not a timetable: ask
+  which group, professor, course or day when no filter was given (or go to `retriever` for term
+  dates and programme contents), check an unknown name with the applicant, and try a shorter part
+  of a course name before saying there are no classes.
 - `ROUTER_PROMPT` — "class timetables" joins the list of what `qa` handles. "When is the CS-1
   lecture on Monday?" asks about a time without asking to meet anyone, which is the shape the
   router already treats as not-booking; naming it removes the doubt.

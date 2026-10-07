@@ -70,6 +70,8 @@ ROUTING_CASES = [
     RoutingCase('Which courses does the Computer Science programme include?', ['retriever']),
     # # Everything factual that is not a named person or place.
     RoutingCase('How much does the Computer Science bachelor cost per year?', ['retriever']),
+    RoutingCase('I have a 3.8 GPA and $25k family income — what can I get?', ['check_scholarship']),
+    RoutingCase('Tell me about scholarships in general.', ['retriever']),
     # Two named programmes weighed against each other. The one case the compare graph exists for:
     # the whole question goes to `compare_programs`, which fans out to both programmes at once —
     # `retriever` twice in a row would be the same answer built the slow way, and reads here as a
@@ -101,13 +103,23 @@ CLASS = ScheduleEntry(
     end_time='10:30',
 )
 PASSAGE = 'Tuition for the BSc in Computer Science is $22,500 per year. Applications close on March 1.'
+SCHOLARSHIPS_PASSAGE = (
+    'NIT offers four scholarships: the Northwood Merit Scholarship (GPA 3.7 or higher, 50% tuition '
+    "discount), the Dean's Excellence Award (GPA 3.9 or higher and an entrance exam score of 90 or "
+    'more, $8,000 per year), the Need-Based Access Grant (family income below $30,000 and GPA 3.0 or '
+    'higher, 30% tuition discount) and the Women in STEM Scholarship (female students in Computer '
+    'Science, Engineering or Natural Sciences with GPA 3.5 or higher, $5,000 per year). A student '
+    'holds one scholarship at a time.'
+)
 
 
 class StubKnowledgeService:
-    """Answers every query with the same passage, in the hit shape ``join_passages`` expects."""
+    """Answers every query with one passage — the scholarships one when the query is about them,
+    the same one otherwise — in the hit shape ``join_passages`` expects."""
 
     async def search(self, query: str) -> list[ScoredPoint]:
-        return [ScoredPoint(id=1, version=0, score=1.0, payload={'text': PASSAGE})]
+        text = SCHOLARSHIPS_PASSAGE if 'scholarship' in query.lower() else PASSAGE
+        return [ScoredPoint(id=1, version=0, score=1.0, payload={'text': text})]
 
 
 PROGRAM_PASSAGES = {
