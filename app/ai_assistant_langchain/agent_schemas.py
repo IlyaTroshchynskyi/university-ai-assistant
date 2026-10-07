@@ -8,6 +8,7 @@ from langgraph.types import Interrupt
 from pydantic import BaseModel, BeforeValidator, EmailStr, Field
 
 from app.api.v1.rooms.enums import Weekday
+from app.api.v1.scholarships.enums import Faculty
 
 
 class CustomContext(BaseModel):
@@ -49,31 +50,51 @@ OptionalFilter = Annotated[str | None, BeforeValidator(_blank_to_none)]
 class GetScheduleToolInput(BaseModel):
     group: OptionalFilter = Field(
         default=None,
-        description=(
-            "The student group's code, exactly as the applicant gave it, e.g. 'CS-1'. Leave it out "
-            'when the question names no group.'
-        ),
+        description="The student group's code, exactly as the applicant gave it, e.g. 'CS-1'.",
     )
     professor: OptionalFilter = Field(
         default=None,
-        description=(
-            'The full name or first name of the professor whose classes are wanted. Leave it out '
-            'when the question names no professor.'
-        ),
+        description='The full name or first name of the professor whose classes are wanted.',
     )
     course: OptionalFilter = Field(
         default=None,
-        description=(
-            "The course's name, or a distinctive part of it, e.g. 'Data Structures'. Leave it out "
-            'when the question names no course.'
-        ),
+        description="The course's name, or a distinctive part of it, e.g. 'Data Structures'.",
     )
     weekday: Weekday | None = Field(
         default=None,
-        description=(
-            "The day of the week, as one of 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'. Leave it "
-            'out when the question names no day.'
-        ),
+        description="The day of the week, as one of 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'.",
+    )
+
+
+class CheckScholarshipToolInput(BaseModel):
+    gpa: float = Field(
+        ge=0,
+        le=4,
+        description="The applicant's GPA on the 4.0 scale, exactly as they stated it.",
+    )
+    family_income: float | None = Field(
+        default=None,
+        ge=0,
+        description=('The applicant\'s family income per year in US dollars, as a plain number: 25000 for "$25k".'),
+    )
+    entrance_exam_score: float | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="The applicant's NIT entrance exam score, from 0 to 100.",
+    )
+    is_female: bool | None = Field(
+        default=None,
+        description='True when the applicant has said they are female, false when they have said they are not.',
+    )
+    faculty: Faculty | None = Field(
+        default=None,
+        description='The faculty the programme the applicant named belongs to.',
+    )
+    annual_tuition: float | None = Field(
+        default=None,
+        gt=0,
+        description='The annual tuition of that programme in US dollars, as a plain number.',
     )
 
 
@@ -82,11 +103,9 @@ class CompareProgramsToolInput(BaseModel):
 
     programs: list[str] = Field(
         description=(
-            'Every programme to compare, in the order the applicant named them, each named as they '
+            'The programmes to compare, in the order the applicant named them, each named as they '
             'named it: ["Economics", "Business Analytics"]. The name on its own — no degree, no '
-            'faculty, and not the word "programme" appended to it. Between two and five, and all of '
-            'them programmes the applicant actually named: if they named only one, this is not the '
-            'tool for the question.'
+            'faculty, and not the word "programme" appended to it. Between two and five.'
         ),
     )
 
@@ -95,11 +114,7 @@ class ListFreeSlotsToolInput(BaseModel):
     """Input schema for the ListFreeSlotsTool."""
 
     date: datetime.date = Field(
-        description=(
-            "The day to look at, 'YYYY-MM-DD'. Required, and it is the day the applicant asked "
-            'for. When they named no day, use `find_earliest_open_slots` instead of guessing one '
-            'here.'
-        ),
+        description="The day to look at, 'YYYY-MM-DD'.",
     )
 
 
@@ -107,15 +122,15 @@ class ListMyBookingsToolInput(BaseModel):
     """Input schema for the ListMyBookingsTool."""
 
     applicant_email: EmailStr = Field(
-        description='The email address the appointment was booked under. Ask for it; it is the key.',
+        description='The email address the appointment was booked under.',
     )
 
 
 class SlotKeyToolInput(BaseModel):
     """The three fields that identify one slot. All of them come from `list_free_slots`."""
 
-    slot_id: int = Field(description='The slot id, exactly as `list_free_slots` returned it.')
-    date: datetime.date = Field(description="The slot's date, 'YYYY-MM-DD', exactly as `list_free_slots` returned it.")
+    slot_id: int = Field(description='The slot id.')
+    date: datetime.date = Field(description="The slot's date, 'YYYY-MM-DD'.")
     # A pattern, not `datetime.time`: the sort key is built as f'{start_time}#{slot_id}', and
     # `time.isoformat()` renders '09:00' as '09:00:00', so the key would stop matching for every
     # slot there is. The pattern checks the one thing that matters — the shape the key is made of —
@@ -123,7 +138,7 @@ class SlotKeyToolInput(BaseModel):
     # phantom "that slot is no longer available".
     start_time: str = Field(
         pattern=r'^([01]\d|2[0-3]):[0-5]\d$',
-        description="The slot's start time, 'HH:MM', exactly as `list_free_slots` returned it.",
+        description="The slot's start time, 'HH:MM'.",
     )
 
 
@@ -132,20 +147,14 @@ class BookAppointmentToolInput(SlotKeyToolInput):
 
     applicant_email: EmailStr = Field(
         description=(
-            'The email address the applicant gave you. Ask for it and use it exactly as they wrote '
-            'it; never invent one or build it from their name. It identifies the booking and is how '
-            'they are reached about it later.'
+            'The email address the applicant gave, exactly as they wrote it. It identifies the booking '
+            'and is how they are reached about it later.'
         ),
     )
     topic: str = Field(
         description=(
-            'What the applicant told you, in their own words, that they want to discuss. The test '
-            'is whether you can point at the message they said it in: if you cannot quote them, '
-            'you do not have a topic, and being a required field is not permission to invent one. '
-            'Nothing describing the meeting itself passes that test — "consultation", '
-            '"appointment", "advising", "admissions consultation" and the like restate what they '
-            'are booking, not what they want out of it. If they have not said, do not call this '
-            'tool: ask them, and call it once they answer.'
+            'The subject the applicant said they want to discuss, in their own words: what they want '
+            'out of the meeting, not a name for the meeting itself.'
         ),
     )
 
@@ -154,11 +163,7 @@ class CancelAppointmentToolInput(SlotKeyToolInput):
     """Input schema for the CancelAppointmentTool."""
 
     applicant_email: EmailStr = Field(
-        description=(
-            'The email address the appointment is booked under, exactly as `list_my_bookings` '
-            'returned it. Only that address can cancel it, so look the appointment up rather than '
-            'cancelling from a date and time the applicant merely named.'
-        ),
+        description='The email address the appointment is booked under.',
     )
 
 

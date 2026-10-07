@@ -54,7 +54,7 @@ pytestmark = [
 ]
 
 ENDPOINT = '/langchain-assistant'
-RETRIEVER_TOOL = 'retriever'
+GROUNDING_TOOLS = frozenset({'retriever', 'check_scholarship'})
 GOLDENS = golden_params(Layer.AGENT)
 
 
@@ -63,7 +63,7 @@ async def retrieved_chunks(user_id: str) -> list[str]:
     return [
         message.content
         for message in snapshot.values['messages']
-        if isinstance(message, ToolMessage) and message.name == RETRIEVER_TOOL and message.content != NO_RESULTS
+        if isinstance(message, ToolMessage) and message.name in GROUNDING_TOOLS and message.content != NO_RESULTS
     ]
 
 
@@ -84,7 +84,7 @@ class TestAgent(TestBaseClientClass):
             retrieval_context=chunks or None,
         )
 
-        # No chunks means the agent answered without the tool — small talk, or a question it
+        # No chunks means the agent answered without a grounding tool — small talk, or a question it
         # declined. Neither faithfulness nor answer relevancy means anything there, so
         # ``agent_metrics`` drops both and scores the reply on correctness alone.
         await assert_metrics(test_case, agent_metrics(has_context=bool(chunks)))

@@ -389,8 +389,8 @@ not what you want.
 Six suites under `tests/integration`, each measuring one layer. Two score the assistant against 23
 hand-written goldens with DeepEval: one measures the retriever on its own (`KnowledgeService.search`,
 production defaults), the other measures the answer `POST /langchain-assistant` gives. A third
-asserts *routing* — which of `retriever`, `find_person`, `find_place`, `get_schedule` a question
-sends the agent to.
+asserts *routing* — which of `retriever`, `find_person`, `find_place`, `get_schedule`,
+`check_scholarship` a question sends the agent to.
 The last three are conversational and behavioural, and are described under their own heading below.
 
 ```bash

@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from types_aiobotocore_dynamodb import DynamoDBClient
 
-from app.ai_assistant_langchain.tools import get_schedule, NARROW_THE_TIMETABLE
+from app.ai_assistant_langchain.tools import get_schedule, NO_TIMETABLE_FILTER
 from app.api.v1.rooms.enums import Weekday
 from app.api.v1.schedule.schedule_service import open_schedule_service
 from app.api.v1.schedule.schemas import ScheduleEntry
@@ -251,36 +251,33 @@ class TestGetScheduleTool(TestBaseScheduleClass):
     async def test_unknown_name_is_told_apart_from_an_empty_timetable(self) -> None:
         found = await get_schedule.ainvoke({'group': 'CS-9', 'weekday': 'Mon'})
 
-        assert found == (
-            "No group is called 'CS-9'. Check the name with the applicant; this does not mean there are no classes."
-        )
+        assert found == "No group is called 'CS-9'. This does not mean there are no classes."
 
     async def test_no_match_on_a_course_says_how_courses_are_matched(self) -> None:
         found = await get_schedule.ainvoke({'group': 'CS-1', 'course': 'Introduction to Programming'})
 
         assert found == (
             "No classes found for group='CS-1', course='Introduction to Programming'. A course is "
-            'matched as part of its stored name, so try a shorter, distinctive part of it before '
-            'telling the applicant there are none.'
+            'matched as part of its stored name.'
         )
 
-    async def test_no_filter_asks_to_narrow_without_reading_anything(self) -> None:
+    async def test_no_filter_is_reported_without_reading_anything(self) -> None:
         with patch(PATH_TO_SCHEDULE_SERVICE) as opened:
             found = await get_schedule.ainvoke({})
 
-        assert found == NARROW_THE_TIMETABLE
+        assert found == NO_TIMETABLE_FILTER
         opened.assert_not_called()
 
     async def test_empty_string_is_a_filter_that_was_not_given(self) -> None:
         with patch(PATH_TO_SCHEDULE_SERVICE) as opened:
             found = await get_schedule.ainvoke({'group': '', 'course': ''})
 
-        assert found == NARROW_THE_TIMETABLE
+        assert found == NO_TIMETABLE_FILTER
         opened.assert_not_called()
 
     async def test_whitespace_is_a_filter_that_was_not_given(self) -> None:
         with patch(PATH_TO_SCHEDULE_SERVICE) as opened:
             found = await get_schedule.ainvoke({'professor': '  ', 'course': ' '})
 
-        assert found == NARROW_THE_TIMETABLE
+        assert found == NO_TIMETABLE_FILTER
         opened.assert_not_called()
