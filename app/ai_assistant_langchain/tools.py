@@ -1,16 +1,28 @@
+from datetime import date
+import json
 import logging
+from typing import cast
 
+from langchain.tools import ToolRuntime
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
+from langgraph.types import Command
 
 from app.ai_assistant.university_knowladge.knowledge_service import get_knowledge_service, join_passages
 from app.ai_assistant_langchain.agent_schemas import (
+    AssistantAgentState,
     CheckScholarshipToolInput,
     CompareProgramsToolInput,
+    CustomContext,
     FindPersonToolInput,
     FindPlaceToolInput,
     GetScheduleToolInput,
     RetrieverToolInput,
 )
+from app.ai_assistant_langchain.applicant_documents.document_rules import check_applicant_documents
+from app.ai_assistant_langchain.applicant_documents.enums import DocumentField
+from app.ai_assistant_langchain.applicant_documents.extractors import extract_document_fields, get_extractor
+from app.ai_assistant_langchain.applicant_documents.schemas import DocumentFields
 from app.ai_assistant_langchain.graphs.compare_programs.graph import get_compare_programs_graph
 from app.api.v1.places.places_repository import open_places_repository
 from app.api.v1.professors.professors_repository import open_professors_repository
@@ -25,6 +37,10 @@ logger = logging.getLogger(__name__)
 # How many programmes one comparison covers. Not a schema constraint: ``compare_programs`` is
 # ``return_direct``, so a list rejected by pydantic would reach the applicant as its error text.
 MAX_PROGRAMS = 5
+
+UNREAD_DOCUMENTS_NOTICE = 'The attached documents could not be read this time, so they were not checked.'
+IDENTIFIER_FIELDS = (DocumentField.PASSPORT_NUMBER, DocumentField.TAX_ID)
+VISIBLE_IDENTIFIER_CHARACTERS = 2
 
 NO_TIMETABLE_FILTER = (
     'The timetable is looked up by a group, a professor, a course or a weekday, and none of them was given.'
@@ -144,6 +160,46 @@ async def check_scholarship(
     return check.model_dump()
 
 
+@tool
+async def validate_documents(runtime: ToolRuntime[CustomContext, AssistantAgentState]) -> Command | str:
+    """Read the files attached to the applicant's message and check their admission documents against the rules."""
+    attached_files = runtime.context.documents
+    try:
+        extracted_fields = await extract_document_fields(attached_files, get_extractor())
+    except ExceptionGroup as failures:
+        logger.warning('ValidateDocuments could not read %d file(s): %r', len(attached_files), failures.exceptions)
+        return UNREAD_DOCUMENTS_NOTICE
+
+    verdict = check_applicant_documents(
+        [_mask_document_identifiers(fields) for fields in extracted_fields],
+        today=date.today(),
+        documents_on_file=[
+            DocumentFields.model_validate(document) for document in runtime.state.get('documents_on_file', [])
+        ],
+    )
+    logger.info(
+        'ValidateDocuments %d file(s), %d document(s) on file -> is_valid: %s; issues: %s',
+        len(attached_files),
+        len(verdict.documents_on_file),
+        verdict.is_valid,
+        ', '.join(verdict.issues) or 'none',
+    )
+
+    verdict_json = verdict.model_dump(mode='json')
+    return Command(
+        update={
+            'documents_on_file': verdict_json['documents_on_file'],
+            'messages': [
+                ToolMessage(
+                    json.dumps(verdict_json, ensure_ascii=False),
+                    tool_call_id=cast(str, runtime.tool_call_id),
+                    name=validate_documents.name,
+                )
+            ],
+        }
+    )
+
+
 @tool(args_schema=CompareProgramsToolInput, return_direct=True)
 async def compare_programs(programs: list[str]) -> str:
     """Compare two to five named study programmes side by side — focus, courses, duration, admission
@@ -188,7 +244,30 @@ async def compare_programs(programs: list[str]) -> str:
     )
 
 
-ASSISTANT_TOOLS = [retriever, find_person, find_place, get_schedule, check_scholarship, compare_programs]
+ASSISTANT_TOOLS = [
+    retriever,
+    find_person,
+    find_place,
+    get_schedule,
+    check_scholarship,
+    validate_documents,
+    compare_programs,
+]
 
 
 DIRECT_ANSWER_TOOLS = frozenset(item.name for item in ASSISTANT_TOOLS if item.return_direct)
+
+
+def _mask_document_identifiers(fields: DocumentFields) -> DocumentFields:
+    masked_identifiers = {
+        field.value: _mask_identifier(identifier)
+        for field in IDENTIFIER_FIELDS
+        if (identifier := getattr(fields, field))
+    }
+    return fields.model_copy(update=masked_identifiers)
+
+
+def _mask_identifier(identifier: str) -> str:
+    visible_length = VISIBLE_IDENTIFIER_CHARACTERS if len(identifier) > VISIBLE_IDENTIFIER_CHARACTERS else 0
+    hidden_length = len(identifier) - visible_length
+    return '*' * hidden_length + identifier[hidden_length:]

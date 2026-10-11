@@ -1,14 +1,15 @@
 from functools import lru_cache
-from typing import Annotated, Sequence, TypedDict
+from typing import Annotated, NotRequired, Sequence, TypedDict
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.constants import END, START
 from langgraph.graph import add_messages
 from langgraph.graph.state import CompiledStateGraph, StateGraph
+from langgraph.runtime import Runtime
 from pydantic import BaseModel
 
 from app.ai_assistant_langchain.agent import create_assistant_agent, create_booking_agent
-from app.ai_assistant_langchain.agent_model import get_model_factory
+from app.ai_assistant_langchain.agent_model import get_structured_output_model_factory
 from app.ai_assistant_langchain.agent_schemas import CustomContext
 from app.ai_assistant_langchain.checkpointer.saver import get_checkpointer
 from app.ai_assistant_langchain.enums import GraphNode
@@ -20,6 +21,7 @@ NO_HISTORY = '(no earlier messages — the conversation starts here)'
 
 class MainState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
+    documents_on_file: NotRequired[list[dict[str, object]]]
 
 
 class Route(BaseModel):
@@ -49,15 +51,18 @@ def _recent_turns(messages: Sequence[BaseMessage], limit: int = 4, max_chars: in
     return '\n'.join(reversed(lines)) if lines else NO_HISTORY
 
 
-async def route(state: MainState) -> GraphNode:
+async def route(state: MainState, runtime: Runtime[CustomContext]) -> GraphNode:
     """Pick the handler for the newest message, with the turns before it as background.
 
     The message being routed stays a real ``HumanMessage`` while its background goes into the
     system prompt, so the model is never in doubt about which of the two it is classifying.
     """
+    if runtime.context.documents:
+        return GraphNode.QA
+
     *earlier, current = state['messages']
     decision = (
-        await get_model_factory()
+        await get_structured_output_model_factory()
         .with_structured_output(Route)
         .ainvoke([SystemMessage(build_router_prompt(_recent_turns(earlier))), current])
     )

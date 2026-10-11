@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Sequence
 import logging
 from typing import Annotated, AsyncIterator, cast
 from uuid import UUID
@@ -12,13 +13,16 @@ from sse_starlette import ServerSentEvent
 
 from app.ai_assistant_langchain.agent_schemas import AgentResponse
 from app.ai_assistant_langchain.agent_service import AgentService
+from app.ai_assistant_langchain.applicant_documents.schemas import DocumentImage
 from app.ai_assistant_langchain.graphs.compare_programs.graph import MERGE
 from app.ai_assistant_langchain.history.schemas import Role, utc_now
 from app.ai_assistant_langchain.history.service import ConversationHistoryService
 from app.ai_assistant_langchain.runs import assert_free, claimed, register
 from app.ai_assistant_langchain.schemas import (
+    ATTACHMENT_LINE_TEMPLATE,
     ChatSchemaOut,
     Decision,
+    DEFAULT_DOCUMENTS_QUERY,
     HistoryMessage,
     PendingApproval,
     UserQuery,
@@ -58,25 +62,31 @@ class BaseChatService:
         self._agent_service = agent_service
         self._history_service = history_service
 
-    async def process_turn(self, query: UserQuery) -> ChatSchemaOut:
+    async def process_turn(self, query: UserQuery, documents: Sequence[DocumentImage] = ()) -> ChatSchemaOut:
         async with claimed(str(query.user_id)):
             if query.decisions is not None:
                 return await self.process_reviewer_decisions(query.user_id, query.decisions)
 
-            return await self.process_user_query(query.user_id, cast(str, query.query))
+            return await self.process_user_query(query.user_id, query.query, documents)
 
-    async def process_user_query(self, user_id: UUID, message: str) -> ChatSchemaOut:
-        logger.info('Processing query for user=%s', user_id)
+    async def process_user_query(
+        self, user_id: UUID, message: str | None, documents: Sequence[DocumentImage] = ()
+    ) -> ChatSchemaOut:
+        logger.info('Processing query with %d attached file(s) for user=%s', len(documents), user_id)
 
-        messages = [HumanMessage(content=message)]
+        messages = [HumanMessage(content=self._build_message_with_attachments(message, documents))]
         logger.info('Built context with %d messages for user=%s', len(messages), user_id)
 
         # Taken now, not at the write below
         asked_at = utc_now()
-        response = await self._agent_service.run_agent(messages, user_id=str(user_id))
+        response = await self._agent_service.run_agent(messages, user_id=str(user_id), documents=documents)
         logger.info('Agent replied for user=%s', user_id)
 
-        return await self._settle_query(user_id, message, asked_at, response)
+        return await self._settle_query(user_id, message or DEFAULT_DOCUMENTS_QUERY, asked_at, response)
+
+    async def refuse_unavailable_thread(self, user_id: UUID) -> None:
+        assert_free(str(user_id))
+        await self._agent_service.refuse_while_paused(str(user_id))
 
     async def process_reviewer_decisions(self, user_id: UUID, decisions: list[Decision]) -> ChatSchemaOut:
         """Answer the approval this thread is waiting on.
@@ -91,7 +101,9 @@ class BaseChatService:
 
         return await self._settle_decisions(user_id, response)
 
-    async def start_streaming_turn(self, query: UserQuery) -> asyncio.Queue[ServerSentEvent | None]:
+    async def start_streaming_turn(
+        self, query: UserQuery, documents: Sequence[DocumentImage] = ()
+    ) -> asyncio.Queue[ServerSentEvent | None]:
         user_id = str(query.user_id)
         if query.decisions is None:
             await self._agent_service.refuse_while_paused(user_id)
@@ -100,7 +112,7 @@ class BaseChatService:
 
         queue: asyncio.Queue[ServerSentEvent | None] = asyncio.Queue()
         assert_free(user_id)
-        register(user_id, asyncio.create_task(self._run_streaming_turn(queue, query)))
+        register(user_id, asyncio.create_task(self._run_streaming_turn(queue, query, documents)))
         return queue
 
     async def stream_events(self, queue: asyncio.Queue[ServerSentEvent | None]) -> AsyncIterator[ServerSentEvent]:
@@ -120,13 +132,18 @@ class BaseChatService:
             await self._history_service.record_resumed_turn(user_id, result)
         return result
 
-    async def _run_streaming_turn(self, queue: asyncio.Queue[ServerSentEvent | None], query: UserQuery) -> None:
+    async def _run_streaming_turn(
+        self,
+        queue: asyncio.Queue[ServerSentEvent | None],
+        query: UserQuery,
+        documents: Sequence[DocumentImage] = (),
+    ) -> None:
         """The detached half of a streaming turn."""
         try:
             if query.decisions is not None:
                 await self._stream_reviewer_decisions(queue, query.user_id, query.decisions)
             else:
-                await self._stream_user_query(queue, query.user_id, cast(str, query.query))
+                await self._stream_user_query(queue, query.user_id, query.query, documents)
         except Exception:
             logger.exception('Streaming turn failed for user=%s', query.user_id)
             queue.put_nowait(self._event(ErrorEvent(detail=STREAM_FAILURE_MESSAGE), 'error'))
@@ -134,18 +151,27 @@ class BaseChatService:
             queue.put_nowait(None)
 
     async def _stream_user_query(
-        self, queue: asyncio.Queue[ServerSentEvent | None], user_id: UUID, message: str
+        self,
+        queue: asyncio.Queue[ServerSentEvent | None],
+        user_id: UUID,
+        message: str | None,
+        documents: Sequence[DocumentImage] = (),
     ) -> None:
-        logger.info('Streaming query for user=%s', user_id)
+        logger.info('Streaming query with %d attached file(s) for user=%s', len(documents), user_id)
 
         # Taken now, not at the write below — the same reason `process_user_query` documents.
         asked_at = utc_now()
         response = await self._forward_tokens(
             queue,
-            self._agent_service.stream_agent([HumanMessage(content=message)], user_id=str(user_id)),
+            self._agent_service.stream_agent(
+                [HumanMessage(content=self._build_message_with_attachments(message, documents))],
+                user_id=str(user_id),
+                documents=documents,
+            ),
         )
 
-        self._finish(queue, await self._settle_query(user_id, message, asked_at, response))
+        recorded_message = message or DEFAULT_DOCUMENTS_QUERY
+        self._finish(queue, await self._settle_query(user_id, recorded_message, asked_at, response))
 
     async def _stream_reviewer_decisions(
         self, queue: asyncio.Queue[ServerSentEvent | None], user_id: UUID, decisions: list[Decision]
@@ -287,6 +313,11 @@ class BaseChatService:
 
         logger.info('Graph paused on %s, awaiting decisions', [approval.action for approval in pending])
         return ChatSchemaOut(status='pending_approval', message=message, pending=pending)
+
+    @staticmethod
+    def _build_message_with_attachments(message: str | None, documents: Sequence[DocumentImage]) -> str:
+        attachment_line = ATTACHMENT_LINE_TEMPLATE.format(file_count=len(documents)) if documents else None
+        return '\n\n'.join(part for part in (message, attachment_line) if part)
 
 
 class ChatService(BaseChatService):

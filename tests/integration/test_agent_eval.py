@@ -73,7 +73,7 @@ class TestAgent(TestBaseClientClass):
         user_id = str(uuid.uuid4())
         payload = {'query': golden.question, 'user_id': user_id}
 
-        response = await self.not_auth_client.post(ENDPOINT, json=payload)
+        response = await self.not_auth_client.post(ENDPOINT, data=payload)
         assert response.status_code == 200, response.text
 
         chunks = await retrieved_chunks(user_id)

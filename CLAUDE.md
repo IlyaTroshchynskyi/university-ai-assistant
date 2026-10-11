@@ -12,6 +12,10 @@ are not in this repository.
 Storage is DynamoDB (reference data, appointment slots, the agent's checkpoints, the transcript) and
 Qdrant (the handbook, for retrieval). There is no authentication, by design.
 
+The chat front end is a separate repository next to this one, `../universal-agent-chat`. Its
+`.env.example` lists the routes it calls here and its README the wire contract it expects, so a
+change to what the `/langchain-assistant` endpoints take or answer has to be made there too.
+
 ## Commands
 
 The Makefile calls `ruff`, `mypy`, `pytest` and `uvicorn` bare, so run it from the activated `.venv`
@@ -40,10 +44,12 @@ A plain `pytest` talks to the local DynamoDB only: it creates `*_test` tables fo
 drops them, and runs the agent on a stub model. It never calls OpenAI or Qdrant.
 
 Evaluations (`make eval`, `make eval-routing`, `eval-retriever`, `eval-agent`, `eval-tables`,
-`eval-multiturn`, `eval-booking`, `eval-safety`) are the DeepEval suites in `tests/integration`.
-**They call the real OpenAI API and cost money.** They are collected and skipped unless `--run-eval`
-is passed, which the make targets do. `eval-routing` stubs every tool backend and needs no Qdrant;
-the scoring suites need the handbook ingested first (`POST /documents`).
+`eval-multiturn`, `eval-booking`, `eval-safety`, `eval-documents`) are the suites in
+`tests/integration`, DeepEval ones but for the last. **They call the real OpenAI API and cost
+money.** They are collected and skipped unless `--run-eval` is passed, which the make targets do.
+`eval-routing` stubs every tool backend and needs no Qdrant; the scoring suites need the handbook
+ingested first (`POST /documents`). `eval-documents` draws the applicant documents, has the vision
+model read them and needs neither Qdrant nor DynamoDB.
 
 `.env` must define `OPENAI_API_KEY` and all four `LANGSMITH_*` names — `Settings` declares them
 without defaults, so the app and the tests refuse to start otherwise. To run untraced, set
@@ -57,11 +63,13 @@ names are exported into the process environment; `.env` alone does not reach the
 | | CrewAI | LangGraph |
 |---|---|---|
 | Code | `app/ai_assistant/` | `app/ai_assistant_langchain/` |
-| Endpoint | `POST /ask` (multipart, `session_id`, optional files) | `POST /langchain-assistant` (JSON), `GET /langchain-assistant/{user_id}/history` |
+| Endpoint | `POST /ask` (multipart, `session_id`, optional files) | `POST /langchain-assistant` (a form: `query`, optional `files`, or `decisions`), `GET /langchain-assistant/{user_id}/history` |
 | Memory | a SQLite file or process memory, chosen by `STORE_BACKEND` | DynamoDB |
 
-They share the knowledge base and the DynamoDB repositories and nothing else. Document verification
-(vision) exists only in the CrewAI flow.
+They share the knowledge base and the DynamoDB repositories and nothing else. Each verifies an
+applicant's documents its own way: the CrewAI flow in one vision call that also does the judging,
+the LangGraph agent by reading fields off the images and judging them in code (`validate_documents`
+below).
 
 ### The LangGraph assistant
 
@@ -77,14 +85,49 @@ inside the booking agent surface through the endpoint.
   `app/api/v1/scholarships/scholarship_rules.py`, so a rule that changes in the handbook has to
   change there too — `TestRulesMatchTheHandbook` fails when the two drift. A faculty added through
   the API has to be added to the `Faculty` enum next to it as well, or the tool rejects it.
+  `validate_documents` takes no arguments from the model: it reads the files off
+  `CustomContext.documents`, which a message sent with `files` fills. Nothing says which file is
+  which document — the vision call that reads a file also decides its `document_type`. The run
+  context is not checkpointed, so the images exist for that one request and are stored nowhere.
+  What was read off them is kept: `documents_on_file`, a key of `AssistantAgentState` and of
+  `MainState` (it has to be in both, or it does not survive the subagent node), holds the latest
+  file of each document as dumped `DocumentFields`, the passport number and the tax id already
+  masked. The tool reads it from `runtime.state` and writes it back, which is why it returns a
+  `Command` carrying its own `ToolMessage` rather than a dict. So the documents can arrive one
+  message at a time, and a message without files is judged on what is on file. A turn that carries
+  files skips the router (`route` sends it to `qa`), and the model's copy of the message ends with
+  `ATTACHMENT_LINE_TEMPLATE`, which the prompt quotes and which counts the files rather than naming
+  them; a message that is files alone is that line and nothing else, never an English sentence of
+  ours, because the model answers in the language of what it reads. The transcript keeps the text
+  as written. The tool answers a failed read with a sentence rather than raising. The code is
+  `app/ai_assistant_langchain/applicant_documents/`: an `Extractor` reads each image into `DocumentFields`
+  (`OpenAIVisionExtractor`, on `VISION_MODEL`), and `check_applicant_documents` in
+  `document_rules.py` merges the message's files into the documents on file and judges those. Keep
+  the two apart — the rules must not depend on what read the fields. The `issues` codes are a fixed
+  vocabulary: the course's, which its two applicant sets are tested against (`build_documents` and
+  `build_broken_documents`), and they are about the documents on file only. What became of each
+  file of the message — added, replaced, unchanged, duplicate, unrecognized — is `file_outcomes`, a
+  list of `FileOutcome` that never changes `is_valid`. `ISSUE_CODES` in `document_rules.py` and the
+  `FileOutcome` enum are the two vocabularies the model reads; a value added to either has to be
+  explained in the matching `Verdict` field description and in `MAIN_CHAT_PROMPT`, which is the one
+  place the model learns what they mean, and `tests/unit/test_tool_texts.py` fails until it is.
 - **Booking agent** — tools in `booking_tools.py`. The two that write (`book_appointment`,
   `cancel_appointment`) sit behind `HumanInTheLoopMiddleware`: the graph interrupts, the API answers
   `status: "pending_approval"`, and the next request carries `decisions` (approve / edit / reject)
   instead of `query` to resume. A thread that is paused refuses a new message with a 409.
 - **Request path** — `router.py` → `ChatService` (`service.py`: one turn, JSON or SSE, and what gets
   recorded) → `AgentService` (`agent_service.py`: invoke, resume, stream, validate decisions) plus
-  `ConversationHistoryService` (`history/`). The same endpoint streams when the request sends
-  `Accept: text/event-stream`.
+  `ConversationHistoryService` (`history/`). The request is a form, `UserQuery` read through
+  `Form()`: `query`, or `decisions` as a JSON array in one field, or `query` with up to
+  `MAX_FILES_PER_MESSAGE` `files`. A JSON body is a 422. The same endpoint streams when the request
+  sends `Accept: text/event-stream`. For a message with files the router refuses a busy or paused
+  thread, then reads the uploads (`document_reader.py`: PNG and JPEG as they are, a PDF rendered to
+  an image, anything else a 415) and hands them to the same `process_turn` or
+  `start_streaming_turn`. There is one path for a message, with files or without: every step takes
+  `documents`, empty when the message carries none. The uploads are read before a stream starts, so
+  a refused file still gets its status code. PDF pages
+  are drawn in a worker thread behind `PDF_RENDER_LOCK`, because PyMuPDF must not run on two
+  threads at once.
 - **Two tables per conversation**, both keyed by `user_id` as the thread: `agent_checkpoints` is the
   graph's state, written by the hand-rolled saver in `checkpointer/`; `conversation_history` is what
   was actually said, and is what the history endpoint replays. Do not read one to answer for the
@@ -96,6 +139,14 @@ inside the booking agent surface through the endpoint.
 
 The graph, both agents and the chat model are `lru_cache`d factories. The booking prompt is rebuilt
 per call (it carries today's date); the QA prompt is a constant and knows no date.
+
+There are two chat models (`agent_model.py`). `get_model_factory` is the one whose answers are
+shown, and it streams. `get_structured_output_model_factory` is for a call whose answer is parsed
+and never shown — the router's — and is built with `disable_streaming=True`, as is the extractor's
+vision model. Under a streamed turn LangGraph makes every model call in the graph stream, and
+`langchain-openai` (still so in 1.7.0) dumps the events of a streamed structured-output call with
+pydantic's serializer warnings on, which prints one `PydanticSerializationUnexpectedValue` per
+call. A new `with_structured_output` call goes on the second model.
 
 ### Knowledge base
 
@@ -132,12 +183,18 @@ place they become HTTP status codes.
 ## Tests
 
 - `tests/api/` drives the app over HTTP with `StubChatModel` (`tests/agent_stubs.py`): scripted
-  replies, scripted routes, real graph, real checkpointer. The stub is installed by patching
-  `get_model_factory` under **each importing module's own name** and clearing all three graph caches.
+  replies, scripted routes, real graph, real checkpointer. The stub is installed by patching the
+  model factory under **each importing module's own name** — `get_model_factory` in `agent.py`,
+  `get_structured_output_model_factory` in `main_graph.py` — and clearing all three graph caches.
 - `tests/dynamodb/` calls savers and services directly against the local DynamoDB.
 - `tests/unit/` is for pure functions and needs neither DynamoDB nor a model.
 - `tests/factories/` holds row models that mirror what the seeder writes, plus creators, getters and
-  deleters. Seed rows through these rather than through the agent.
+  deleters. Seed rows through these rather than through the agent. `applicant_factory.py` builds the
+  course's two applicant sets and draws any document as a PNG; `SAMPLE_DAY` is the date they are
+  judged on, and a test that reaches the rules through the tool freezes the tool's date to it, so
+  the sample passport does not expire under the suite.
+- Test data is built in the test, not loaded from the repository: no sample images, JSON or PDFs
+  are checked in (`*png` and `*pdf` are gitignored). A test that needs a file draws or writes it.
 - Each table has a fixture in `tests/conftest.py` that hands out a service and **empties the table
   afterwards**. Requesting one is how a test declares which tables it may leave rows in.
 - Event loops: ordinary tests run on a per-test loop; the eval suites run on the session loop
@@ -156,7 +213,8 @@ place they become HTTP status codes.
   and fixtures need annotations. Existing code types a raw DynamoDB row as a bare `dict`.
 - A tool returns `model_dump()` dicts or a string, never pydantic models: LangChain renders a result
   with `json.dumps` and falls back to `str()`, so a model — or a `datetime.time` — reaches the LLM as
-  a Python repr.
+  a Python repr. A tool that also has to write graph state returns a `Command` whose `ToolMessage`
+  holds that same JSON — `validate_documents` is the one that does.
 - What an agent should do lives in its system prompt; what a tool is lives in the tool. Every rule
   of behaviour — when to call a tool and when not, what to look up or ask first, what to do with
   each kind of result — is in `MAIN_CHAT_PROMPT`, which has one section per QA tool, or in the
@@ -170,51 +228,9 @@ place they become HTTP status codes.
   `tests/integration/test_tool_routing_eval.py`.
 - Concurrent awaits use `asyncio.TaskGroup`. A failure inside one arrives as an `ExceptionGroup`;
   `checkpointer/saver.py` shows the `except*` unwrap for when the original type has to surface.
-
-## Naming
-
-New code follows these three rules. Code written before them does not all follow yet, so an older
-name is not a precedent.
-
-### Functions get verbs, values get nouns
-
-A function's name starts with a verb — a one-line private helper, a method and a test helper
-included:
-
-- `_money(amount)` -> `_format_money`
-- `scholarship.worth(annual_tuition)` -> `scholarship.compute_worth(annual_tuition)`
-- `verdicts(check)` -> `build_verdict_map`
-
-A bare noun is reserved for a value: `reason = find_scholarship_reason(check, MERIT)`. A property
-reads like a value, so it is named like one (`scholarship.award`, `scholarship.label`), and so is a
-constant (`ONE_SCHOLARSHIP_RULE`, not `ONE_AT_A_TIME`).
-
-### The verb says what the function actually does
-
-`get_` is only for handing back something that already exists: a field, or an object built once and
-cached (`get_settings`, `get_knowledge_service`). Anything that looks something up or transforms it
-takes the verb this repo already uses for that shape of work:
-
-- `find_…`      looks something up by a name or a key and may find nothing - `find_schedule`,
-  `find_professors_by_name`
-- `list_…`      every row of one kind - `list_group_classes`, `list_free_slots`
-- `build_…`     assembles a structure or a prompt - `build_main_graph`, `_build_scholarship_match`
-- `compute_…`   numeric result - `compute_worth`
-- `check_…`     holds a fact against a rule and returns the verdict - `check_scholarship`,
-  `_check_gpa_minimum`
-- `pick_…`      chooses one out of several - `_pick_awarded_scholarship`
-- `parse_…`     unstructured input -> typed shape - `parse_pages`
-- `normalize_…` one spelling out of many - `normalize_name`
-- `format_…`    value -> display string - `_format_money`, `_format_results`
-- `open_…`      an async context manager that owns its client - `open_schedule_service`
-
-`_handle_gpa` is wrong where `_check_gpa_minimum` is right: the verb must name the operation, not
-gesture at it.
-
-### The noun names the domain type
-
-Qualify with the type the function works on: `_build_scholarship_match`, not `_match`;
-`_pick_awarded_scholarship`, not `_pick_awarded`; `find_scholarship_reason`, not `reason_for`.
+- **Naming:** functions start with a verb that names the operation (`find_`, `build_`, `check_`,
+  `format_`, …) and carry the domain noun; bare nouns are values; a boolean starts with `is_`,
+  `has_`, `can_` or `should_`. Full rules: `.claude/rules/naming.md`.
 
 ## Things that will mislead you
 

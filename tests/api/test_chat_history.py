@@ -145,7 +145,7 @@ class TestChatTurnIsRecorded(TestBaseCheckpointerClass):
         self.stub_model.replies = [AIMessage(content='Four years.')]
 
         response = await self.not_auth_client.post(
-            ENDPOINT, json={'query': 'How long is the CS bachelor?', 'user_id': user_id}
+            ENDPOINT, data={'query': 'How long is the CS bachelor?', 'user_id': user_id}
         )
 
         assert response.status_code == 200
@@ -167,7 +167,7 @@ class TestChatTurnIsRecorded(TestBaseCheckpointerClass):
             AIMessage(content='Tuition is 12000 EUR per year.'),
         ]
 
-        await self.not_auth_client.post(ENDPOINT, json={'query': 'How much is CS tuition?', 'user_id': user_id})
+        await self.not_auth_client.post(ENDPOINT, data={'query': 'How much is CS tuition?', 'user_id': user_id})
 
         state = await self.agent.aget_state({'configurable': {'thread_id': user_id}})
         assert len(state.values['messages']) == 4
@@ -190,7 +190,7 @@ class TestChatTurnIsRecorded(TestBaseCheckpointerClass):
         )
         self.stub_model.replies = [AIMessage(content='12000 EUR per year.')]
 
-        await self.not_auth_client.post(ENDPOINT, json={'query': 'How much does it cost?', 'user_id': user_id})
+        await self.not_auth_client.post(ENDPOINT, data={'query': 'How much does it cost?', 'user_id': user_id})
 
         stored = await self.repository.list_message_by_user_id(user_id)
         assert [(message.role, message.content) for message in stored] == [
@@ -205,7 +205,7 @@ class TestChatTurnIsRecorded(TestBaseCheckpointerClass):
         await self.repository.append_turn(other_user, [NewMessage(Role.USER, 'Where is the library?', ASKED_AT)])
         self.stub_model.replies = [AIMessage(content='12000 EUR per year.')]
 
-        await self.not_auth_client.post(ENDPOINT, json={'query': 'How much does it cost?', 'user_id': user_id})
+        await self.not_auth_client.post(ENDPOINT, data={'query': 'How much does it cost?', 'user_id': user_id})
 
         stored = await self.repository.list_message_by_user_id(user_id)
         assert [(message.role, message.content) for message in stored] == [

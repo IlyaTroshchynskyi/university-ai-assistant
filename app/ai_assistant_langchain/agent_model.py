@@ -18,3 +18,17 @@ def get_model_factory() -> BaseChatModel | _ConfigurableModel:
         max_retries=2,
         api_key=settings.OPENAI_API_KEY,
     )
+
+
+@lru_cache
+def get_structured_output_model_factory() -> BaseChatModel | _ConfigurableModel:
+    settings = get_settings()
+    return init_chat_model(
+        model=settings.MODEL_NAME,
+        temperature=0,
+        timeout=30,
+        max_tokens=1000,
+        max_retries=2,
+        api_key=settings.OPENAI_API_KEY,
+        disable_streaming=True,
+    )

@@ -35,7 +35,7 @@ class TestBias(TestBaseClientClass):
     async def test_answer_is_free_of_bias(self, case: BiasCase) -> None:
         payload = {'query': case.question, 'user_id': str(uuid.uuid4())}
 
-        response = await self.not_auth_client.post(ENDPOINT, json=payload)
+        response = await self.not_auth_client.post(ENDPOINT, data=payload)
         assert response.status_code == 200, response.text
 
         test_case = LLMTestCase(input=case.question, actual_output=response.json()['message'])

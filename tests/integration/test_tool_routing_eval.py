@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage
 import pytest
 from qdrant_client.models import ScoredPoint
 
+from app.ai_assistant_langchain.applicant_documents.schemas import DocumentFields, DocumentImage
 from app.ai_assistant_langchain.main_graph import build_main_graph
 from app.api.v1.rooms.enums import Weekday
 from app.api.v1.schedule.schemas import ScheduleEntry
@@ -35,6 +36,7 @@ PATH_TO_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.tools.get_knowledge_serv
 PATH_TO_PROFESSORS_REPOSITORY = 'app.ai_assistant_langchain.tools.open_professors_repository'
 PATH_TO_PLACES_REPOSITORY = 'app.ai_assistant_langchain.tools.open_places_repository'
 PATH_TO_SCHEDULE_SERVICE = 'app.ai_assistant_langchain.tools.open_schedule_service'
+PATH_TO_EXTRACTOR = 'app.ai_assistant_langchain.tools.get_extractor'
 # The compare graph searches the knowledge base itself rather than through the `retriever` tool, so
 # its own module-level lookup is a second place to stub — patching the tool's leaves both gather
 # branches talking to a Qdrant this suite is not allowed to need.
@@ -72,6 +74,8 @@ ROUTING_CASES = [
     RoutingCase('How much does the Computer Science bachelor cost per year?', ['retriever']),
     RoutingCase('I have a 3.8 GPA and $25k family income — what can I get?', ['check_scholarship']),
     RoutingCase('Tell me about scholarships in general.', ['retriever']),
+    RoutingCase('Please check my documents.', ['validate_documents']),
+    RoutingCase('Which documents do I need to apply?', ['retriever']),
     # Two named programmes weighed against each other. The one case the compare graph exists for:
     # the whole question goes to `compare_programs`, which fans out to both programmes at once —
     # `retriever` twice in a row would be the same answer built the slow way, and reads here as a
@@ -189,6 +193,11 @@ class StubScheduleService:
         return [CLASS.model_copy(update={name: value for name, value in asked.items() if value})]
 
 
+class StubExtractor:
+    async def extract(self, image: DocumentImage) -> DocumentFields:
+        return DocumentFields(document_type=None)
+
+
 @asynccontextmanager
 async def stub_professors_repository() -> AsyncGenerator[StubProfessorsRepository, None]:
     yield StubProfessorsRepository()
@@ -225,6 +234,7 @@ class TestToolRouting(TestBaseClientClass):
             patch(PATH_TO_PROFESSORS_REPOSITORY, stub_professors_repository),
             patch(PATH_TO_PLACES_REPOSITORY, stub_places_repository),
             patch(PATH_TO_SCHEDULE_SERVICE, stub_schedule_service),
+            patch(PATH_TO_EXTRACTOR, return_value=StubExtractor()),
         ):
             yield
 
@@ -232,7 +242,7 @@ class TestToolRouting(TestBaseClientClass):
     async def test_question_routes_to_expected_tool(self, case: RoutingCase) -> None:
         user_id = str(uuid.uuid4())
 
-        response = await self.not_auth_client.post(ENDPOINT, json={'query': case.question, 'user_id': user_id})
+        response = await self.not_auth_client.post(ENDPOINT, data={'query': case.question, 'user_id': user_id})
 
         test_case = LLMTestCase(
             input=case.question,

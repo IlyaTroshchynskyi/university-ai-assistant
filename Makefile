@@ -12,8 +12,8 @@ run_app:
 # buffering the whole response — without it a working stream looks exactly like a broken one.
 stream_turn:
 	curl -N -X POST http://127.0.0.1:8000/langchain-assistant \
-	  -H 'Content-Type: application/json' -H 'Accept: text/event-stream' \
-	  -d '{"user_id": "11111111-1111-1111-1111-111111111111", "query": "How long is the CS bachelor?"}'
+	  -H 'Accept: text/event-stream' \
+	  -F user_id=11111111-1111-1111-1111-111111111111 -F 'query=How long is the CS bachelor?'
 
 
 test-checkpointer:
@@ -64,6 +64,12 @@ eval-booking:
 
 eval-safety:
 	pytest tests/integration/test_safety_eval.py --run-eval --log-cli-level=INFO -v
+
+# The vision extractor on the two applicant sets tests/factories/applicant_factory.py draws: five
+# images read by the real model, then judged by the rules and compared with the verdict each set
+# should get. No judges, no Qdrant and no DynamoDB.
+eval-documents:
+	pytest tests/integration/test_document_validation_eval.py --run-eval --log-cli-level=INFO -v
 
 
 typecheck:
