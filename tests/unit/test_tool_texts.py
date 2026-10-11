@@ -3,8 +3,12 @@ import re
 from langchain_core.tools import BaseTool
 import pytest
 
+from app.ai_assistant_langchain.applicant_documents.document_rules import ISSUE_CODES
+from app.ai_assistant_langchain.applicant_documents.enums import FileOutcome
+from app.ai_assistant_langchain.applicant_documents.schemas import Verdict
 from app.ai_assistant_langchain.booking_tools import BOOKING_TOOLS
 from app.ai_assistant_langchain.prompts import BOOKING_SYSTEM_PROMPT_TEMPLATE, MAIN_CHAT_PROMPT
+from app.ai_assistant_langchain.schemas import ATTACHMENT_LINE_TEMPLATE
 from app.ai_assistant_langchain.tools import ASSISTANT_TOOLS
 
 ASSISTANT_TOOL_NAMES = [tool.name for tool in ASSISTANT_TOOLS]
@@ -31,3 +35,16 @@ class TestToolTexts:
     @pytest.mark.parametrize('name', BOOKING_TOOL_NAMES)
     def test_booking_prompt_names_the_tool(self, name: str) -> None:
         assert f'"{name}"' in BOOKING_SYSTEM_PROMPT_TEMPLATE
+
+    def test_qa_prompt_shows_the_line_a_message_with_files_ends_with(self) -> None:
+        assert ATTACHMENT_LINE_TEMPLATE.format(file_count=2) in MAIN_CHAT_PROMPT
+
+    @pytest.mark.parametrize('issue_code', ISSUE_CODES)
+    def test_issue_code_is_explained_wherever_the_model_reads_about_issues(self, issue_code: str) -> None:
+        assert f'`{issue_code}' in str(Verdict.model_fields['issues'].description)
+        assert f'"{issue_code}' in MAIN_CHAT_PROMPT
+
+    @pytest.mark.parametrize('file_outcome', list(FileOutcome))
+    def test_file_outcome_is_explained_wherever_the_model_reads_about_outcomes(self, file_outcome: FileOutcome) -> None:
+        assert f'`{file_outcome}`' in str(Verdict.model_fields['file_outcomes'].description)
+        assert f'"{file_outcome}"' in MAIN_CHAT_PROMPT

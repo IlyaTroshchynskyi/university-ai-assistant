@@ -21,7 +21,7 @@ from app.ai_assistant_langchain.main_graph import build_main_graph
 # lives: both modules bind it with ``from … import`` at import time, so patching it at the source
 # would leave the copies they already hold — and the graph would build on the real model.
 PATH_TO_MODEL_FACTORY = 'app.ai_assistant_langchain.agent.get_model_factory'
-PATH_TO_ROUTER_MODEL_FACTORY = 'app.ai_assistant_langchain.main_graph.get_model_factory'
+PATH_TO_ROUTER_MODEL_FACTORY = 'app.ai_assistant_langchain.main_graph.get_structured_output_model_factory'
 DEFAULT_STUB_REPLY = 'Stubbed assistant reply.'
 DEFAULT_STUB_ROUTE = GraphNode.QA
 

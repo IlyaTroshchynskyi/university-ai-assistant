@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 import logging
 from typing import Annotated, AsyncIterator, cast, TypeAlias
 
@@ -15,6 +16,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, StreamPart
 
 from app.ai_assistant_langchain.agent_schemas import AgentResponse, CustomContext
+from app.ai_assistant_langchain.applicant_documents.schemas import DocumentImage
 from app.ai_assistant_langchain.main_graph import build_main_graph
 from app.ai_assistant_langchain.schemas import Decision
 from app.core.exceptions import ConflictingStatusError
@@ -35,16 +37,22 @@ class AgentService:
         self,
         messages: list[BaseMessage],
         user_id: str,
+        documents: Sequence[DocumentImage] = (),
     ) -> AgentResponse:
         await self.refuse_while_paused(user_id)
 
-        logger.info('Invoking agent for user_id=%s with %d messages', user_id, len(messages))
+        logger.info(
+            'Invoking agent for user_id=%s with %d messages and %d attached file(s)',
+            user_id,
+            len(messages),
+            len(documents),
+        )
         response = cast(
             AgentResponse,
             await self._graph.ainvoke(
                 {'messages': messages},
                 config=self._config(user_id),
-                context=CustomContext(user_id=user_id),
+                context=CustomContext(user_id=user_id, documents=list(documents)),
             ),
         )
         logger.info('Agent response received for user_id=%s', user_id)
@@ -95,11 +103,21 @@ class AgentService:
 
         return hitl_decisions
 
-    async def stream_agent(self, messages: list[BaseMessage], user_id: str) -> AsyncIterator[StreamPart]:
+    async def stream_agent(
+        self,
+        messages: list[BaseMessage],
+        user_id: str,
+        documents: Sequence[DocumentImage] = (),
+    ) -> AsyncIterator[StreamPart]:
         await self.refuse_while_paused(user_id)
 
-        logger.info('Streaming agent for user_id=%s with %d messages', user_id, len(messages))
-        async for part in self._astream_parts({'messages': messages}, user_id):
+        logger.info(
+            'Streaming agent for user_id=%s with %d messages and %d attached file(s)',
+            user_id,
+            len(messages),
+            len(documents),
+        )
+        async for part in self._astream_parts({'messages': messages}, user_id, documents):
             yield part
 
     async def stream_resume(self, decisions: list[Decision], user_id: str) -> AsyncIterator[StreamPart]:
@@ -164,11 +182,16 @@ class AgentService:
 
         return {'type': 'edit', 'edited_action': {'name': action['name'], 'args': decision.args or {}}}
 
-    def _astream_parts(self, graph_input: StreamInput, user_id: str) -> AsyncIterator[StreamPart]:
+    def _astream_parts(
+        self,
+        graph_input: StreamInput,
+        user_id: str,
+        documents: Sequence[DocumentImage] = (),
+    ) -> AsyncIterator[StreamPart]:
         return self._graph.astream(
             graph_input,
             config=self._config(user_id),
-            context=CustomContext(user_id=user_id),
+            context=CustomContext(user_id=user_id, documents=list(documents)),
             # No `updates`: the pause arrives on the root `values` part, in its `interrupts` (P2).
             stream_mode=['messages', 'values'],
             # Without it a subagent's answer arrives once, whole, instead of as tokens — P1.

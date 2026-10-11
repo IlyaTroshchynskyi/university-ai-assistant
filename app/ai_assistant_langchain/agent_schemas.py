@@ -3,16 +3,29 @@
 import datetime
 from typing import Annotated, NotRequired, TypedDict
 
+from langchain.agents.middleware.types import AgentState
 from langchain_core.messages import BaseMessage
 from langgraph.types import Interrupt
 from pydantic import BaseModel, BeforeValidator, EmailStr, Field
 
+from app.ai_assistant_langchain.applicant_documents.schemas import DocumentImage
 from app.api.v1.rooms.enums import Weekday
 from app.api.v1.scholarships.enums import Faculty
 
 
 class CustomContext(BaseModel):
     user_id: str
+    documents: list[DocumentImage] = Field(
+        default_factory=list,
+        description=(
+            'The files attached to the message being answered, in the order they were attached. '
+            'Empty on a message that carries none.'
+        ),
+    )
+
+
+class AssistantAgentState(AgentState):
+    documents_on_file: list[dict[str, object]]
 
 
 class RetrieverToolInput(BaseModel):

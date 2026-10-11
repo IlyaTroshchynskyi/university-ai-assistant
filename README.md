@@ -210,15 +210,24 @@ ever drifts out of step with the tables — a row deleted outside the API, say �
 undeletable, and the fix is another `make seed`: everything here is regenerable, so there is nothing
 a repair-in-place would save.
 
+The request is a form, not a JSON body: `user_id` and `query` as form fields, `multipart/form-data`
+or URL-encoded. The same form carries the files of a message that has any (below) and, in place of
+`query`, the `decisions` that answer a pending approval — a JSON array in one field, because a form
+has no nesting. A JSON body is answered with a `422`.
+
 ```bash
 
 # turn 1
-curl -X POST http://127.0.0.1:8000/langchain-assistant -H 'Content-Type: application/json' \
-  -d '{"user_id": "11111111-1111-1111-1111-111111111111", "query": "How long is the CS bachelor?"}'
+curl -X POST http://127.0.0.1:8000/langchain-assistant \
+  -F user_id=11111111-1111-1111-1111-111111111111 -F 'query=How long is the CS bachelor?'
 
 # turn 2 — "it" resolves from the stored history, and still does after a server restart
-curl -X POST http://127.0.0.1:8000/langchain-assistant -H 'Content-Type: application/json' \
-  -d '{"user_id": "11111111-1111-1111-1111-111111111111", "query": "How much does it cost?"}'
+curl -X POST http://127.0.0.1:8000/langchain-assistant \
+  -F user_id=11111111-1111-1111-1111-111111111111 -F 'query=How much does it cost?'
+
+# answering an approval the thread is paused on
+curl -X POST http://127.0.0.1:8000/langchain-assistant \
+  -F user_id=11111111-1111-1111-1111-111111111111 -F 'decisions=[{"type": "approve"}]'
 ```
 
 ### Streaming
@@ -255,6 +264,125 @@ flight and starts a second turn on a thread the first one is still writing to.
 
 `docs/manual-testing.md` has the `curl -N` scripts, and `docs/specs/streaming-responses.md` is the
 design.
+
+### Checking an applicant's documents
+
+A message can carry files: the same `POST /langchain-assistant`, with up to five parts named
+`files` next to `user_id` and `query` — PNG, JPEG or PDF, 5 MB each. Nothing says which file is
+which document: the assistant tells the passport, the tax code and the school certificate apart by
+reading them. They can come as a pack or one message at a time: what is read off a file is kept for
+the rest of the conversation, and the verdict is always about everything received so far. A PDF is
+read by its first page, drawn at
+150 dpi and never more than 2000 pixels on its longer side, so a page of any declared size costs a
+bounded amount of memory.
+
+```bash
+curl -X POST http://127.0.0.1:8000/langchain-assistant \
+  -F user_id=11111111-1111-1111-1111-111111111111 \
+  -F files=@passport.png \
+  -F files=@tax_code.png \
+  -F files=@certificate.pdf
+```
+
+Without a `query` the turn is recorded in the transcript as "Please check my documents.". The
+model is not shown that sentence — it is ours, in English, and the model answers in the language of
+the last message it reads. The answer is the `ChatSchemaOut` every turn returns, and it streams like
+any other turn when the request asks for `text/event-stream`. Files cannot travel with `decisions`.
+
+A message that carries files skips the router and goes to the QA agent, the only one that can read
+them. The model's copy of the message ends with a line counting what came with it —
+`[Files attached to this message: 2]` — because nothing else tells it that an "is it fine now?"
+arrived with a new certificate. A message sent with files and no text is that line alone, and the
+prompt tells the model to keep answering in the language the applicant last wrote in. The line
+carries a count and not the file names, which are the applicant's own text. The transcript keeps
+the message as it was written.
+
+**The files are not stored; what was read off them is, for the conversation.** The images travel
+in the graph's run context for that one request, which is where the `validate_documents` tool reads
+them, and they are gone when it ends. The fields the tool read are kept in the conversation's graph
+state as `documents_on_file` — one entry per document, the latest file of each — so they are in
+`agent_checkpoints` with the rest of the thread. That is what lets an applicant send the passport
+now and the certificate two messages later, or ask "what is still missing?" with no file at all. A
+file sent later replaces the earlier file of the same document, so a sharper scan corrects a
+blurred one. A new conversation starts with nothing on file. A passport number and a tax id are
+masked but for their last two characters (`*******67`) before they are kept or shown to the model:
+the rules only need to know they were there, and the two characters are enough for an applicant to
+recognise the document.
+
+Checking is two stages that do not know about each other:
+
+1. **Extraction** turns each image into fields, the first of which is `document_type`: what the
+   image is — a passport, a tax code, a certificate, or none of the three. `Extractor` in
+   `app/ai_assistant_langchain/applicant_documents/extractors.py` is the interface; `OpenAIVisionExtractor` is the
+   one implementation, a multimodal message to `VISION_MODEL` with a structured answer. All
+   attached files are read at the same time, one call each.
+2. **Validation** is code, `check_applicant_documents` in `document_rules.py`: the same rules whatever
+   read the fields. It puts each file of the message on file under the `document_type` it was read
+   as, in place of an earlier one, and then judges the documents on file.
+
+The verdict is `is_valid` plus `issues`, one code per problem with the documents on file, in the
+vocabulary the course's sample sets use:
+
+| Issue | Means |
+|---|---|
+| `missing_document:<document>` | that document has not been received in this conversation yet |
+| `missing_field:<document>.<field>` | the document does not show a field it has to |
+| `unreadable:<document>.<field>` | the field is printed but could not be read with confidence |
+| `expired:<document>` | past its expiry date — the passport |
+| `name_mismatch` | the documents do not agree on the full name |
+| `date_of_birth_mismatch` | the documents do not agree on the date of birth |
+
+A passport has to show a full name, a date of birth, a number and an expiry date; a tax code a full
+name, a date of birth and a tax id; a certificate a full name and a GPA.
+
+Two names are the same when they are made of the same words: letter case, punctuation and the order
+of the words do not count, so `KOVALENKO, MARIA` on a passport matches `Maria Kovalenko` on a
+certificate. A word one document has and another lacks — a middle name, a patronymic — still makes
+a `name_mismatch`. A date printed in digits alone, with nothing on the document to show which number
+is the day, is read day first.
+
+What became of the files of the message itself is a second list, `file_outcomes`, one entry per
+file in the order attached:
+
+| Outcome | Means |
+|---|---|
+| `added` | the document was not on file and now is |
+| `replaced` | the file took the place of an earlier file of the same document |
+| `unchanged` | the file reads exactly like the one already on file, so nothing changed |
+| `duplicate` | another file of the same message is the same document; neither is taken, and what was on file stays |
+| `unrecognized` | the file is none of the three documents; it is not taken |
+
+An outcome is not an issue: `is_valid` is about the documents on file alone, so a stray screenshot
+sent after three good documents is mentioned, not held against them. The outcomes are what lets the
+assistant say "I already had this passport" or "the new certificate replaced the earlier one"
+instead of repeating the verdict. A replacement counts even when it is worse than what it replaced:
+a certificate with another name on it, sent after a good one, makes the set invalid.
+
+The verdict also carries `documents_on_file`, the documents it judged, and `extracted_fields`, what
+was read off each file of this message, in the same order as the outcomes.
+
+A file that is not a PNG, a JPEG or a PDF is refused with a `415` naming the file, and so is a
+PDF that cannot be opened, is protected by a password or has no pages. A file over the size limit is
+refused with a `413`, and a sixth file with a `422`. A thread that is busy or waiting for an
+approval answers `409` before any file is read. All of this happens before anything reaches the
+model, and before a stream starts.
+
+Two limits are not handled in the application. The size limit is per file and is checked after
+the request has arrived, so the total size of a request is whatever the server in front of the
+application allows. And PDF pages are drawn one at a time, because PyMuPDF must not
+run on two threads at once: a second PDF waits for the first.
+
+When a file cannot be read — the vision model timed out, or refused the image — the tool says
+that nothing was checked instead of failing the turn, and the assistant asks for the files again.
+One unread file leaves all the files of that message unread — the reads run together and stop
+together — and what was already on file as it was.
+
+No applicant's document is kept in the repository. The two sets the course describes — a valid one,
+and a broken one with a misspelt name, no tax code and no GPA — are built in code by
+`tests/factories/applicant_factory.py`, which also draws each document as an image when a test
+needs one. The rules are checked against both sets on every `pytest`; `make eval-documents` draws
+the five images and has the real vision model read them, which costs money like every other
+`make eval-*`.
 
 ### The transcript (`conversation_history`)
 
@@ -386,12 +514,14 @@ not what you want.
 
 ## Evaluating the RAG pipeline
 
-Six suites under `tests/integration`, each measuring one layer. Two score the assistant against 23
+Seven suites under `tests/integration`, each measuring one layer. Two score the assistant against 23
 hand-written goldens with DeepEval: one measures the retriever on its own (`KnowledgeService.search`,
 production defaults), the other measures the answer `POST /langchain-assistant` gives. A third
 asserts *routing* — which of `retriever`, `find_person`, `find_place`, `get_schedule`,
-`check_scholarship` a question sends the agent to.
-The last three are conversational and behavioural, and are described under their own heading below.
+`check_scholarship`, `validate_documents` a question sends the agent to.
+Three more are conversational and behavioural, and are described under their own heading below. The
+seventh draws the two applicant sets as images, has the vision extractor read them and compares the
+verdict with the one each set should get.
 
 ```bash
 make eval            # everything
@@ -402,6 +532,7 @@ make eval-tables     # the goldens whose answers live inside tables
 make eval-multiturn  # four scripted conversations, scored whole
 make eval-booking    # five booking conversations, each through the HITL gate
 make eval-safety     # four questions written to invite a biased opinion
+make eval-documents  # the vision extractor on the two applicant sample sets
 ```
 
 **It calls the real OpenAI API and costs money.** A plain `pytest` never does — the suites are
@@ -419,7 +550,8 @@ Before the first run:
   `eval-routing`, `eval-multiturn`, `eval-booking`, `eval-safety`. This became a requirement when the agent's
   checkpointer moved to DynamoDB: those suites create the `*_test` tables and hold one client open
   for the session. `eval-retriever` calls `KnowledgeService.search` directly, runs no graph and
-  needs no DynamoDB.
+  needs no DynamoDB. Neither does `eval-documents`, which calls the extractor and the rules
+  directly and needs no Qdrant either.
   The single-turn agent goldens still avoid `find_person` and `find_place` — 17 and 18 ask for campus
   opening hours and are retriever-only since 2026-08-11 — because a failing tool does not raise: the
   agent's `ToolNode` catches it and hands the model an error message, so the answer degrades quietly

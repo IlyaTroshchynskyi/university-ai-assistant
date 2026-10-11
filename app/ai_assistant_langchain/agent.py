@@ -13,7 +13,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
 from app.ai_assistant_langchain.agent_model import get_model_factory
-from app.ai_assistant_langchain.agent_schemas import CustomContext
+from app.ai_assistant_langchain.agent_schemas import AssistantAgentState, CustomContext
 from app.ai_assistant_langchain.booking_tools import book_appointment, BOOKING_TOOLS, cancel_appointment
 from app.ai_assistant_langchain.prompts import (
     build_booking_system_prompt,
@@ -29,6 +29,7 @@ def create_assistant_agent() -> CompiledStateGraph:
         model=model,
         system_prompt=MAIN_CHAT_PROMPT,
         tools=ASSISTANT_TOOLS,
+        state_schema=AssistantAgentState,
         context_schema=CustomContext,
         # NO checkpointer — `build_main_graph` owns it. A subgraph compiled with a saver of its own
         # runs on its own thread, and the parent's thread_id and interrupt plumbing break with it.

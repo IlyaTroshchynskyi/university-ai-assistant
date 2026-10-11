@@ -39,7 +39,7 @@ async def run_conversation(client: AsyncClient, user_id: str, questions: list[st
     turns: list[Turn] = []
     seen = 0
     for question in questions:
-        response = await client.post(ENDPOINT, json={'query': question, 'user_id': user_id})
+        response = await client.post(ENDPOINT, data={'query': question, 'user_id': user_id})
         assert response.status_code == 200, response.text
 
         grounds, seen = await get_tool_responses(build_main_graph(), user_id, seen, ignore={NO_RESULTS})

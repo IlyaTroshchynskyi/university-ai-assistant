@@ -1,13 +1,19 @@
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from fastapi import UploadFile
+from pydantic import BaseModel, Field, Json, model_validator
 
 from app.ai_assistant_langchain.history.schemas import Role
 
 DecisionType = Literal['approve', 'edit', 'reject']
 
 ToolArgs = dict[str, str | int]
+
+MAX_QUERY_LENGTH = 128
+MAX_FILES_PER_MESSAGE = 5
+DEFAULT_DOCUMENTS_QUERY = 'Please check my documents.'
+ATTACHMENT_LINE_TEMPLATE = '[Files attached to this message: {file_count}]'
 
 
 class Decision(BaseModel):
@@ -35,23 +41,31 @@ class Decision(BaseModel):
 
 class UserQuery(BaseModel):
     user_id: UUID
-    query: str | None = Field(default=None, min_length=1, max_length=128)
-    decisions: list[Decision] | None = Field(
+    query: str | None = Field(default=None, min_length=1, max_length=MAX_QUERY_LENGTH)
+    decisions: Json[Annotated[list[Decision], Field(min_length=1)]] | None = Field(
         default=None,
-        min_length=1,
         description=(
-            'Set instead of `query` to answer a pending approval on this thread. A list, and one '
-            'entry per action in `pending`, in the same order: a single model turn can request more '
-            'than one gated action, and they are approved or refused together or not at all.'
+            'Set instead of `query` to answer a pending approval on this thread. A JSON array in one '
+            'form field, and one entry per action in `pending`, in the same order: a single model '
+            'turn can request more than one gated action, and they are approved or refused together '
+            'or not at all.'
+        ),
+    )
+    files: list[UploadFile] = Field(
+        default_factory=list,
+        max_length=MAX_FILES_PER_MESSAGE,
+        description=(
+            'The documents sent with `query`, each a PNG, a JPEG or a PDF. Sent without `query`, '
+            'they are a request to check them.'
         ),
     )
 
     @model_validator(mode='after')
     def _exactly_one(self) -> Self:
-        both_missing = self.query is None and self.decisions is None
-        both_given = self.query is not None and self.decisions is not None
-        if both_missing or both_given:
-            raise ValueError('send either `query` or `decisions` — not both, and not neither')
+        has_message = self.query is not None or bool(self.files)
+        has_decisions = self.decisions is not None
+        if has_message == has_decisions:
+            raise ValueError('send either `query`, with or without `files`, or `decisions` — not both, and not neither')
         return self
 
 

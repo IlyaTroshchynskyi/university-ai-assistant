@@ -1,6 +1,7 @@
 import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+import json
 from typing import AsyncGenerator, Generator
 from unittest.mock import AsyncMock, patch
 from uuid import uuid4
@@ -33,6 +34,7 @@ from tests.api.factories import (
     tool_call_reply,
 )
 from tests.api.test_chat_checkpointer import TestBaseCheckpointerClass
+from tests.factories.applicant_factory import MultipartFiles
 from tests.factories.factory_creators import seed_agent_state
 
 ENDPOINT = '/langchain-assistant'
@@ -64,9 +66,9 @@ class Event:
     data: str
 
 
-async def read_events(client: AsyncClient, payload: dict[str, str | list[dict]]) -> list[Event]:
+async def read_events(client: AsyncClient, payload: dict[str, str], files: MultipartFiles | None = None) -> list[Event]:
     events: list[Event] = []
-    async with client.stream('POST', ENDPOINT, json=payload, headers=SSE_HEADERS) as response:
+    async with client.stream('POST', ENDPOINT, data=payload, files=files, headers=SSE_HEADERS) as response:
         assert response.status_code == 200, (await response.aread()).decode()
         assert response.headers['content-type'].startswith('text/event-stream')
         name = ''
@@ -354,7 +356,7 @@ class TestStreamingTurn(TestBaseCheckpointerClass):
         self.stub_model.replies = [AIMessage(content='Four years.')]
 
         response = await self.not_auth_client.post(
-            ENDPOINT, json={'query': 'How long is the CS bachelor?', 'user_id': str(uuid4())}
+            ENDPOINT, data={'query': 'How long is the CS bachelor?', 'user_id': str(uuid4())}
         )
 
         assert response.status_code == 200
@@ -527,7 +529,7 @@ class TestPausesAndFailures(TestBaseCheckpointerClass):
         self.stub_model.routes = [GraphNode.BOOKING]
         self.stub_model.replies = [booking_tool_call_reply()]
         json_response = await self.not_auth_client.post(
-            ENDPOINT, json={'query': 'Book me a slot', 'user_id': str(uuid4())}
+            ENDPOINT, data={'query': 'Book me a slot', 'user_id': str(uuid4())}
         )
 
         assert json_response.json() == ChatSchemaOut.model_validate_json(streamed[-1].data).model_dump()
@@ -537,7 +539,7 @@ class TestPausesAndFailures(TestBaseCheckpointerClass):
         await self._pause_a_booking(user_id)
 
         response = await self.not_auth_client.post(
-            ENDPOINT, json={'query': 'Actually, never mind', 'user_id': user_id}, headers=SSE_HEADERS
+            ENDPOINT, data={'query': 'Actually, never mind', 'user_id': user_id}, headers=SSE_HEADERS
         )
 
         assert response.status_code == 409
@@ -551,7 +553,7 @@ class TestPausesAndFailures(TestBaseCheckpointerClass):
 
         events = await read_events(
             self.not_auth_client,
-            {'user_id': user_id, 'decisions': [{'type': 'reject', 'message': 'The slot is taken.'}]},
+            {'user_id': user_id, 'decisions': json.dumps([{'type': 'reject', 'message': 'The slot is taken.'}])},
         )
 
         assert events[-1].name == 'done'
@@ -563,7 +565,7 @@ class TestPausesAndFailures(TestBaseCheckpointerClass):
 
         response = await self.not_auth_client.post(
             ENDPOINT,
-            json={'user_id': user_id, 'decisions': [{'type': 'approve'}, {'type': 'approve'}]},
+            data={'user_id': user_id, 'decisions': json.dumps([{'type': 'approve'}, {'type': 'approve'}])},
             headers=SSE_HEADERS,
         )
 
@@ -578,7 +580,7 @@ class TestPausesAndFailures(TestBaseCheckpointerClass):
         ]
 
         response = await self.not_auth_client.post(
-            ENDPOINT, json={'query': 'Compare the programmes', 'user_id': user_id}
+            ENDPOINT, data={'query': 'Compare the programmes', 'user_id': user_id}
         )
 
         assert ChatSchemaOut.model_validate(response.json()).message == TOOL_FAILURE_MESSAGE
@@ -638,7 +640,7 @@ class TestDetachedRuns(TestBaseCheckpointerClass):
         runs.register(user_id, in_flight)
 
         response = await self.not_auth_client.post(
-            ENDPOINT, json={'query': 'How long?', 'user_id': user_id}, headers=SSE_HEADERS
+            ENDPOINT, data={'query': 'How long?', 'user_id': user_id}, headers=SSE_HEADERS
         )
 
         assert response.status_code == 409
@@ -650,7 +652,7 @@ class TestDetachedRuns(TestBaseCheckpointerClass):
         in_flight = asyncio.create_task(asyncio.sleep(2))
         runs.register(user_id, in_flight)
 
-        response = await self.not_auth_client.post(ENDPOINT, json={'query': 'How long?', 'user_id': user_id})
+        response = await self.not_auth_client.post(ENDPOINT, data={'query': 'How long?', 'user_id': user_id})
 
         assert response.status_code == 409
         assert 'still running' in response.json()['detail']

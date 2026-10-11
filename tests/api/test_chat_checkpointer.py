@@ -82,7 +82,7 @@ class TestChatWithUserCheckpointer(TestBaseClientClass):
             PATH_TO_RUN_AGENT, new_callable=AsyncMock, return_value={'messages': [AIMessage(content=reply)]}
         ) as agent_mock:
             response = await self.not_auth_client.post(
-                ENDPOINT, json={'query': 'How long is the CS bachelor?', 'user_id': str(uuid4())}
+                ENDPOINT, data={'query': 'How long is the CS bachelor?', 'user_id': str(uuid4())}
             )
 
         assert response.status_code == 200
@@ -96,7 +96,7 @@ class TestChatWithUserCheckpointer(TestBaseClientClass):
         with patch(
             PATH_TO_RUN_AGENT, new_callable=AsyncMock, return_value={'messages': [AIMessage(content='Hi!')]}
         ) as agent_mock:
-            await self.not_auth_client.post(ENDPOINT, json={'query': 'Hello', 'user_id': user_id})
+            await self.not_auth_client.post(ENDPOINT, data={'query': 'Hello', 'user_id': user_id})
 
         await_args = agent_mock.await_args
         assert await_args is not None, 'run_agent was never awaited'
@@ -113,7 +113,7 @@ class TestChatMemoryCheckpointer(TestBaseCheckpointerClass):
         """A brand-new thread carries nothing but the system prompt and the incoming question."""
         self.stub_model.replies = [AIMessage(content='Hi!')]
 
-        response = await self.not_auth_client.post(ENDPOINT, json={'query': 'Hello', 'user_id': str(uuid4())})
+        response = await self.not_auth_client.post(ENDPOINT, data={'query': 'Hello', 'user_id': str(uuid4())})
 
         assert response.status_code == 200
         sent = self.stub_model.calls[0]
@@ -133,7 +133,7 @@ class TestChatMemoryCheckpointer(TestBaseCheckpointerClass):
         )
         self.stub_model.replies = [AIMessage(content='Answer 2')]
 
-        response = await self.not_auth_client.post(ENDPOINT, json={'query': 'Question 2', 'user_id': user_id})
+        response = await self.not_auth_client.post(ENDPOINT, data={'query': 'Question 2', 'user_id': user_id})
 
         assert response.status_code == 200
         assert [message.content for message in self.stub_model.calls[0][1:]] == [
@@ -147,8 +147,8 @@ class TestChatMemoryCheckpointer(TestBaseCheckpointerClass):
         user_id = str(uuid4())
         self.stub_model.replies = [AIMessage(content='Answer 1'), AIMessage(content='Answer 2')]
 
-        await self.not_auth_client.post(ENDPOINT, json={'query': 'Question 1', 'user_id': user_id})
-        await self.not_auth_client.post(ENDPOINT, json={'query': 'Question 2', 'user_id': user_id})
+        await self.not_auth_client.post(ENDPOINT, data={'query': 'Question 1', 'user_id': user_id})
+        await self.not_auth_client.post(ENDPOINT, data={'query': 'Question 2', 'user_id': user_id})
 
         assert [message.content for message in self.stub_model.calls[1][1:]] == [
             'Question 1',
@@ -160,8 +160,8 @@ class TestChatMemoryCheckpointer(TestBaseCheckpointerClass):
         """A different user_id is a different thread, so nothing leaks across users."""
         self.stub_model.replies = [AIMessage(content='Answer 1'), AIMessage(content='Answer 2')]
 
-        await self.not_auth_client.post(ENDPOINT, json={'query': 'Question 1', 'user_id': str(uuid4())})
-        await self.not_auth_client.post(ENDPOINT, json={'query': 'Question 2', 'user_id': str(uuid4())})
+        await self.not_auth_client.post(ENDPOINT, data={'query': 'Question 1', 'user_id': str(uuid4())})
+        await self.not_auth_client.post(ENDPOINT, data={'query': 'Question 2', 'user_id': str(uuid4())})
 
         second_call = self.stub_model.calls[1]
         assert [type(message) for message in second_call] == [SystemMessage, HumanMessage]
@@ -172,8 +172,8 @@ class TestChatMemoryCheckpointer(TestBaseCheckpointerClass):
         user_id = str(uuid4())
         self.stub_model.replies = [AIMessage(content='Answer 1'), AIMessage(content='Answer 2')]
 
-        await self.not_auth_client.post(ENDPOINT, json={'query': 'Question 1', 'user_id': user_id})
-        await self.not_auth_client.post(ENDPOINT, json={'query': 'Question 2', 'user_id': user_id})
+        await self.not_auth_client.post(ENDPOINT, data={'query': 'Question 1', 'user_id': user_id})
+        await self.not_auth_client.post(ENDPOINT, data={'query': 'Question 2', 'user_id': user_id})
 
         state = await self.agent.aget_state({'configurable': {'thread_id': user_id}})
         assert [message.content for message in state.values['messages']] == [
@@ -197,7 +197,7 @@ class TestChatToolCallsCheckpointer(TestBaseCheckpointerClass):
         ]
 
         response = await self.not_auth_client.post(
-            ENDPOINT, json={'query': 'How much is CS tuition?', 'user_id': user_id}
+            ENDPOINT, data={'query': 'How much is CS tuition?', 'user_id': user_id}
         )
 
         assert response.status_code == 200
@@ -217,8 +217,8 @@ class TestChatToolCallsCheckpointer(TestBaseCheckpointerClass):
             AIMessage(content='Yes, that covers lab fees.'),
         ]
 
-        await self.not_auth_client.post(ENDPOINT, json={'query': 'How much is CS tuition?', 'user_id': user_id})
-        await self.not_auth_client.post(ENDPOINT, json={'query': 'Does that include lab fees?', 'user_id': user_id})
+        await self.not_auth_client.post(ENDPOINT, data={'query': 'How much is CS tuition?', 'user_id': user_id})
+        await self.not_auth_client.post(ENDPOINT, data={'query': 'Does that include lab fees?', 'user_id': user_id})
 
         third_call = self.stub_model.calls[2]
         assert [type(message) for message in third_call] == [

@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import json
 import logging
 from typing import Any
 import uuid
@@ -59,7 +60,7 @@ async def run_booking_conversation(client: AsyncClient, user_id: str, case: Book
     seen = 0
 
     for message in case.messages:
-        response = await client.post(ENDPOINT, json={'query': message, 'user_id': user_id})
+        response = await client.post(ENDPOINT, data={'query': message, 'user_id': user_id})
         assert response.status_code == 200, response.text
         reply = response.json()
 
@@ -77,7 +78,7 @@ async def run_booking_conversation(client: AsyncClient, user_id: str, case: Book
             answers = [decisions.pop(0) if decisions else APPROVE for _ in pending]
             response = await client.post(
                 ENDPOINT,
-                json={'user_id': user_id, 'decisions': [answer.as_payload() for answer in answers]},
+                data={'user_id': user_id, 'decisions': json.dumps([answer.as_payload() for answer in answers])},
             )
             assert response.status_code == 200, response.text
             reply = response.json()
