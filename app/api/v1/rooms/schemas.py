@@ -1,7 +1,7 @@
 from datetime import date, time
 from typing import ClassVar
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, computed_field, EmailStr, Field
 
 from app.api.v1.rooms.enums import (
     IssueCategory,
@@ -13,6 +13,7 @@ from app.api.v1.rooms.enums import (
     Weekday,
 )
 from app.core.dynamodb.base_items import TableItem
+from app.core.dynamodb.indexes import build_issue_status_key, build_issue_votes_key
 
 # Todo refactor to diff modules
 
@@ -133,11 +134,39 @@ class IssueCreate(BaseModel):
     """``reported_issues.json`` — something a student reports. It opens with no votes, so
     ``status``/``votes`` are not part of creating one."""
 
-    category: IssueCategory
-    text: str = Field(min_length=5, max_length=500)
+    category: IssueCategory = Field(
+        description="The kind of problem: 'admin', 'facilities', 'food', 'housing', 'schedule' or 'other'."
+    )
+    text: str = Field(
+        min_length=5,
+        max_length=500,
+        description='The problem in a sentence or two, as the student described it: what is wrong and where.',
+    )
 
 
 class Issue(IssueCreate):
     id: str
-    status: IssueStatus
-    votes: int = Field(ge=0, le=1_000_000)
+    status: IssueStatus = Field(description="Where the issue stands: 'open', 'in_progress' or 'resolved'.")
+    votes: int = Field(ge=0, le=1_000_000, description='How many students have backed the issue.')
+
+
+class IssueItem(Issue):
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def pk(self) -> str:
+        return self.category
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def sk(self) -> str:
+        return build_issue_votes_key(self.votes, self.id)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def gsi1pk(self) -> str:
+        return build_issue_status_key(self.status)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def gsi1sk(self) -> str:
+        return self.sk

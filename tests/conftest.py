@@ -62,6 +62,7 @@ def pytest_configure(config: pytest.Config) -> None:
     os.environ['DYNAMODB_PLACES_TABLE'] = 'places_test'
     os.environ['DYNAMODB_GROUPS_TABLE'] = 'academic_groups_test'
     os.environ['DYNAMODB_SLOTS_TABLE'] = 'appointment_slots_test'
+    os.environ['DYNAMODB_ISSUES_TABLE'] = 'reported_issues_test'
     os.environ['DYNAMODB_CHECKPOINTS_TABLE'] = 'agent_checkpoints_test'
     os.environ['DYNAMODB_CONVERSATIONS_TABLE'] = 'conversation_history_test'
 

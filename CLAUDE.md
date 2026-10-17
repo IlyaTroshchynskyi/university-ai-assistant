@@ -85,6 +85,13 @@ inside the booking agent surface through the endpoint.
   `app/api/v1/scholarships/scholarship_rules.py`, so a rule that changes in the handbook has to
   change there too — `TestRulesMatchTheHandbook` fails when the two drift. A faculty added through
   the API has to be added to the `Faculty` enum next to it as well, or the tool rejects it.
+  `list_common_issues` and `report_issue` read and write `reported_issues` through
+  `app/api/v1/issues/`. `report_issue` is the QA agent's one write, and it sits behind
+  `HumanInTheLoopMiddleware` the way a booking does: the student approves, edits or rejects the
+  category and text before anything is filed, and the answer arrives as `decisions`, which skip the
+  router. An issue's sort key is its zero-padded votes
+  (`build_issue_votes_key`), shared by the seeder and `IssueItem` because the "most voted" order is
+  read straight off it.
   `validate_documents` takes no arguments from the model: it reads the files off
   `CustomContext.documents`, which a message sent with `files` fills. Nothing says which file is
   which document — the vision call that reads a file also decides its `document_type`. The run
@@ -168,9 +175,9 @@ Both assistants call the same `search`.
   added there first; one that has no index is a Scan and is recorded as a deliberate one.
 - `app/api/v1/<entity>/` — rooms, faculty and programs have HTTP APIs (router / service /
   repository, wired with `Depends`): create, list and delete, with no update on any of them yet.
-  Professors, places, slots and schedule are read by the agents outside any
-  request, through `open_*_repository()` / `open_schedule_service()` context managers that open
-  their own client.
+  Professors, places, slots, schedule and issues are reached by the agents outside any
+  request — slots and issues are written there too — through `open_*_repository()` /
+  `open_schedule_service()` context managers that open their own client.
 - `db/load_dynamodb.py` is the seeder and bypasses the repositories, so it maintains the
   `dependants` counters itself. Reference tables are wiped on every `make seed`;
   `agent_checkpoints` and `conversation_history` are created only when missing and never touched.

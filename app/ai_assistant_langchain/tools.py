@@ -14,9 +14,11 @@ from app.ai_assistant_langchain.agent_schemas import (
     CheckScholarshipToolInput,
     CompareProgramsToolInput,
     CustomContext,
+    DEFAULT_COMMON_ISSUE_COUNT,
     FindPersonToolInput,
     FindPlaceToolInput,
     GetScheduleToolInput,
+    ListCommonIssuesToolInput,
     RetrieverToolInput,
 )
 from app.ai_assistant_langchain.applicant_documents.document_rules import check_applicant_documents
@@ -24,9 +26,11 @@ from app.ai_assistant_langchain.applicant_documents.enums import DocumentField
 from app.ai_assistant_langchain.applicant_documents.extractors import extract_document_fields, get_extractor
 from app.ai_assistant_langchain.applicant_documents.schemas import DocumentFields
 from app.ai_assistant_langchain.graphs.compare_programs.graph import get_compare_programs_graph
+from app.api.v1.issues.issues_repository import open_issues_repository
 from app.api.v1.places.places_repository import open_places_repository
 from app.api.v1.professors.professors_repository import open_professors_repository
-from app.api.v1.rooms.enums import Weekday
+from app.api.v1.rooms.enums import IssueCategory, Weekday
+from app.api.v1.rooms.schemas import IssueCreate
 from app.api.v1.schedule.schedule_service import open_schedule_service
 from app.api.v1.scholarships.enums import Faculty
 from app.api.v1.scholarships.scholarship_rules import evaluate_scholarships
@@ -41,6 +45,8 @@ MAX_PROGRAMS = 5
 UNREAD_DOCUMENTS_NOTICE = 'The attached documents could not be read this time, so they were not checked.'
 IDENTIFIER_FIELDS = (DocumentField.PASSPORT_NUMBER, DocumentField.TAX_ID)
 VISIBLE_IDENTIFIER_CHARACTERS = 2
+
+NO_REPORTED_ISSUES_NOTICE = 'No student issues have been reported.'
 
 NO_TIMETABLE_FILTER = (
     'The timetable is looked up by a group, a professor, a course or a weekday, and none of them was given.'
@@ -200,6 +206,37 @@ async def validate_documents(runtime: ToolRuntime[CustomContext, AssistantAgentS
     )
 
 
+@tool(args_schema=ListCommonIssuesToolInput)
+async def list_common_issues(limit: int = DEFAULT_COMMON_ISSUE_COUNT) -> list[dict] | str:
+    """Read the problems students have reported on campus, the most-voted first.
+
+    Returns each issue with its category, its text, its status — 'open', 'in_progress' or 'resolved' —
+    and its votes, the number of students who backed it, or a sentence saying that none has been
+    reported.
+    """
+    async with open_issues_repository() as repository:
+        issues = await repository.list_most_voted_issues(limit)
+
+    logger.info('ListCommonIssues limit=%d -> %d issue(s)', limit, len(issues))
+    if not issues:
+        return NO_REPORTED_ISSUES_NOTICE
+
+    return [issue.model_dump(exclude={'id'}) for issue in issues]
+
+
+@tool(args_schema=IssueCreate)
+async def report_issue(category: IssueCategory, text: str) -> dict:
+    """File a problem a student reports on campus as a new issue: open, with no votes yet.
+
+    Returns the filed issue with its id, category, text, status and votes.
+    """
+    async with open_issues_repository() as repository:
+        created_issue = await repository.create_issue(IssueCreate(category=category, text=text))
+
+    logger.info('ReportIssue %s filed as %s', category, created_issue.id)
+    return created_issue.model_dump()
+
+
 @tool(args_schema=CompareProgramsToolInput, return_direct=True)
 async def compare_programs(programs: list[str]) -> str:
     """Compare two to five named study programmes side by side — focus, courses, duration, admission
@@ -251,6 +288,8 @@ ASSISTANT_TOOLS = [
     get_schedule,
     check_scholarship,
     validate_documents,
+    list_common_issues,
+    report_issue,
     compare_programs,
 ]
 

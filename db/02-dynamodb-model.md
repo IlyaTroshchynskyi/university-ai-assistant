@@ -80,6 +80,7 @@ The **Table** column is as of `03-table-split.md`; the key columns are unchanged
 | P10 | One student's bookings | `appointment_slots` | GSI2: `gsi2pk = STUDENT#{email}` |
 | P11 | Reports by category (top by votes) | `reported_issues` | base: `pk = {category}`, `ScanIndexForward=False` |
 | P12 | Reports by status | `reported_issues` | GSI1: `gsi1pk = STATUS#{status}` |
+| P19 | The most-voted reports, whatever their category or status | `reported_issues` | GSI1: P12 once per status, `ScanIndexForward=False`, `Limit = n`, the three merged by votes in the application. A GSI is eventually consistent, so a report filed a moment ago may not be listed yet |
 
 ---
 

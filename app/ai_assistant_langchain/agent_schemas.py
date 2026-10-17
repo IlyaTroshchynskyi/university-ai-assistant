@@ -12,6 +12,9 @@ from app.ai_assistant_langchain.applicant_documents.schemas import DocumentImage
 from app.api.v1.rooms.enums import Weekday
 from app.api.v1.scholarships.enums import Faculty
 
+DEFAULT_COMMON_ISSUE_COUNT = 5
+MAX_COMMON_ISSUE_COUNT = 20
+
 
 class CustomContext(BaseModel):
     user_id: str
@@ -108,6 +111,15 @@ class CheckScholarshipToolInput(BaseModel):
         default=None,
         gt=0,
         description='The annual tuition of that programme in US dollars, as a plain number.',
+    )
+
+
+class ListCommonIssuesToolInput(BaseModel):
+    limit: int = Field(
+        default=DEFAULT_COMMON_ISSUE_COUNT,
+        ge=1,
+        le=MAX_COMMON_ISSUE_COUNT,
+        description='How many issues to return, the most-voted first.',
     )
 
 
