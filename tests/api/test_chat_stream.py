@@ -13,14 +13,14 @@ import pytest
 from types_aiobotocore_dynamodb import DynamoDBClient
 
 from app.ai_assistant_langchain import runs
-from app.ai_assistant_langchain.agent_schemas import CustomContext
 from app.ai_assistant_langchain.agent_service import AgentService
-from app.ai_assistant_langchain.enums import GraphNode
+from app.ai_assistant_langchain.chat_service import ChatService, MODEL_NODE, TOOL_FAILURE_MESSAGE
+from app.ai_assistant_langchain.graph.enums import GraphNode
+from app.ai_assistant_langchain.graph.schemas import CustomContext
 from app.ai_assistant_langchain.history.repository import ConversationHistoryRepository
 from app.ai_assistant_langchain.history.schemas import Role
 from app.ai_assistant_langchain.history.service import ConversationHistoryService
 from app.ai_assistant_langchain.schemas import ChatSchemaOut, UserQuery
-from app.ai_assistant_langchain.service import ChatService, MODEL_NODE, TOOL_FAILURE_MESSAGE
 from app.ai_assistant_langchain.stream_schemas import ErrorEvent, TokenEvent
 from app.core.dynamodb.base_service import DynamoDBService
 from app.core.exceptions import ConflictingStatusError
@@ -34,20 +34,20 @@ from tests.api.factories import (
     tool_call_reply,
 )
 from tests.api.test_chat_checkpointer import TestBaseCheckpointerClass
-from tests.factories.applicant_factory import MultipartFiles
-from tests.factories.factory_creators import seed_agent_state
+from tests.factory_helpers.factory_creators import seed_agent_state
+from tests.factory_models.applicant_factory import MultipartFiles
 
 ENDPOINT = '/langchain-assistant'
 SSE_HEADERS = {'Accept': 'text/event-stream'}
 
 # `merge` gets its model and its knowledge service from its own module, which neither stub helper in
 # `tests/agent_stubs.py` reaches.
-PATH_TO_COMPARE_MODEL_FACTORY = 'app.ai_assistant_langchain.graphs.compare_programs.nodes.get_model_factory'
-PATH_TO_COMPARE_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.graphs.compare_programs.nodes.get_knowledge_service'
+PATH_TO_COMPARE_MODEL_FACTORY = 'app.ai_assistant_langchain.agents.qa.compare_programs.nodes.get_model_factory'
+PATH_TO_COMPARE_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.agents.qa.compare_programs.nodes.get_knowledge_service'
 
 # §4.4's node name, patched by the test that the whole `ToolMessage` still answers when the tool's
 # graph streams nothing this chat recognises.
-PATH_TO_DIRECT_ANSWER_NODE = 'app.ai_assistant_langchain.service.DIRECT_ANSWER_NODE'
+PATH_TO_DIRECT_ANSWER_NODE = 'app.ai_assistant_langchain.chat_service.DIRECT_ANSWER_NODE'
 
 PATH_TO_CHECKPOINTER = 'app.lifespan.get_checkpointer'
 PATH_TO_WAIT_FOR_STREAMING_TURNS = 'app.lifespan.wait_for_streaming_turns'

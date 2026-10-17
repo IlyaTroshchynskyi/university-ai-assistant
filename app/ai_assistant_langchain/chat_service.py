@@ -11,10 +11,11 @@ from langgraph.types import MessagesStreamPart, StreamPart, ValuesStreamPart
 from pydantic import BaseModel
 from sse_starlette import ServerSentEvent
 
-from app.ai_assistant_langchain.agent_schemas import AgentResponse
 from app.ai_assistant_langchain.agent_service import AgentService
+from app.ai_assistant_langchain.agents.qa.compare_programs.graph import MERGE
+from app.ai_assistant_langchain.agents.qa.tools import DIRECT_ANSWER_TOOLS
 from app.ai_assistant_langchain.applicant_documents.schemas import DocumentImage
-from app.ai_assistant_langchain.graphs.compare_programs.graph import MERGE
+from app.ai_assistant_langchain.graph.schemas import AgentResponse
 from app.ai_assistant_langchain.history.schemas import Role, utc_now
 from app.ai_assistant_langchain.history.service import ConversationHistoryService
 from app.ai_assistant_langchain.runs import assert_free, claimed, register
@@ -28,7 +29,6 @@ from app.ai_assistant_langchain.schemas import (
     UserQuery,
 )
 from app.ai_assistant_langchain.stream_schemas import ErrorEvent, TokenEvent
-from app.ai_assistant_langchain.tools import DIRECT_ANSWER_TOOLS
 from app.core.exceptions import IncompleteStreamError
 
 logger = logging.getLogger(__name__)

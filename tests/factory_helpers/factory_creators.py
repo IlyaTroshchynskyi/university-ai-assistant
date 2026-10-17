@@ -5,7 +5,7 @@ from langchain_core.messages import BaseMessage
 from langgraph.graph.state import CompiledStateGraph
 from types_aiobotocore_dynamodb import DynamoDBClient
 
-from app.ai_assistant_langchain.enums import GraphNode
+from app.ai_assistant_langchain.graph.enums import GraphNode
 from app.api.v1.faculty.repository import FacultyRepository
 from app.api.v1.faculty.schemas import FacultyCreate, FacultyItem
 from app.api.v1.programs.repository import ProgramsRepository
@@ -17,13 +17,13 @@ from app.core.dynamodb.base_items import DEPENDANTS
 from app.core.dynamodb.schemas import Slot
 from app.settings import get_settings
 from tests.db_utils import clear_table, table_service
-from tests.factories.group_factory import GroupRow
-from tests.factories.issue_factory import IssueFactory, IssueRow
-from tests.factories.place_factory import PlaceFactory, PlaceRow
-from tests.factories.professor_factory import ProfessorFactory, ProfessorRow
-from tests.factories.program_factory import ProgramCreationFactory
-from tests.factories.schedule_factory import ClassRow, CourseRow, NamedGroupRow
-from tests.factories.slot_factory import SlotRow
+from tests.factory_models.group_factory import GroupRow
+from tests.factory_models.issue_factory import IssueFactory, IssueRow
+from tests.factory_models.place_factory import PlaceFactory, PlaceRow
+from tests.factory_models.professor_factory import ProfessorFactory, ProfessorRow
+from tests.factory_models.program_factory import ProgramCreationFactory
+from tests.factory_models.schedule_factory import ClassRow, CourseRow, NamedGroupRow
+from tests.factory_models.slot_factory import SlotRow
 
 
 async def create_test_room(creation: CreateRoom, db_client: DynamoDBClient) -> Room:

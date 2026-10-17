@@ -6,14 +6,14 @@ from fastapi import FastAPI
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 import pytest
 
-from app.ai_assistant_langchain.main_graph import build_main_graph
+from app.ai_assistant_langchain.graph.main_graph import build_main_graph
 from app.ai_assistant_langchain.schemas import ChatSchemaOut
 from app.core.dynamodb.base_service import DynamoDBService
 from tests.agent_stubs import get_stub_model, get_test_agent, stub_router_model
 from tests.api.factories import PATH_TO_KNOWLEDGE_SERVICE, StubKnowledgeService, tool_call_reply
 from tests.conftest import TestBaseAgentClass, TestBaseClientClass
 from tests.dependencies import override_dependency, remove_dependency_override
-from tests.factories.factory_creators import seed_agent_state
+from tests.factory_helpers.factory_creators import seed_agent_state
 
 PATH_TO_RUN_AGENT = 'app.ai_assistant_langchain.agent_service.AgentService.run_agent'
 ENDPOINT = '/langchain-assistant'

@@ -6,8 +6,8 @@ from sse_starlette import EventSourceResponse
 
 from app.ai_assistant_langchain.applicant_documents.document_reader import read_applicant_documents
 from app.ai_assistant_langchain.applicant_documents.schemas import DocumentImage
+from app.ai_assistant_langchain.chat_service import ChatService, SSE_MEDIA_TYPE
 from app.ai_assistant_langchain.schemas import ChatSchemaOut, HistoryMessage, UserQuery
-from app.ai_assistant_langchain.service import ChatService, SSE_MEDIA_TYPE
 
 router = APIRouter(tags=['Langchain assistant'])
 

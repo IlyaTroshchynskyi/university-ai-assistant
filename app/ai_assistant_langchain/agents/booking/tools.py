@@ -4,7 +4,7 @@ import logging
 from langchain_core.tools import tool
 from pydantic import EmailStr
 
-from app.ai_assistant_langchain.agent_schemas import (
+from app.ai_assistant_langchain.agents.booking.tool_inputs import (
     BookAppointmentToolInput,
     CancelAppointmentToolInput,
     ListFreeSlotsToolInput,

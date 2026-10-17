@@ -39,7 +39,7 @@ from langchain_core.messages import ToolMessage
 import pytest
 
 from app.ai_assistant.university_knowladge.knowledge_service import NO_RESULTS
-from app.ai_assistant_langchain.main_graph import build_main_graph
+from app.ai_assistant_langchain.graph.main_graph import build_main_graph
 from tests.conftest import TestBaseClientClass
 from tests.integration.goldens import golden_params, GoldenCase, Layer
 from tests.integration.metrics import agent_metrics, assert_metrics

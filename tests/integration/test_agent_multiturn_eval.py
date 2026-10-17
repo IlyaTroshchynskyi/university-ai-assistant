@@ -8,9 +8,9 @@ import pytest_asyncio
 from types_aiobotocore_dynamodb import DynamoDBClient
 
 from app.ai_assistant.university_knowladge.knowledge_service import NO_RESULTS
-from app.ai_assistant_langchain.main_graph import build_main_graph
+from app.ai_assistant_langchain.graph.main_graph import build_main_graph
 from tests.conftest import TestBaseClientClass
-from tests.factories.factory_creators import create_test_place_row, create_test_professor_row
+from tests.factory_helpers.factory_creators import create_test_place_row, create_test_professor_row
 from tests.integration.conversations import ConversationCase, CONVERSATIONS
 from tests.integration.metrics import assert_metrics, conversation_metrics
 from tests.integration.thread_state import get_tool_responses

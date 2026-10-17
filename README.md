@@ -379,8 +379,8 @@ together — and what was already on file as it was.
 
 No applicant's document is kept in the repository. The two sets the course describes — a valid one,
 and a broken one with a misspelt name, no tax code and no GPA — are built in code by
-`tests/factories/applicant_factory.py`, which also draws each document as an image when a test
-needs one. The rules are checked against both sets on every `pytest`; `make eval-documents` draws
+`tests/factory_models/applicant_factory.py`, which also draws each document as an image
+when a test needs one. The rules are checked against both sets on every `pytest`; `make eval-documents` draws
 the five images and has the real vision model read them, which costs money like every other
 `make eval-*`.
 

@@ -7,22 +7,22 @@ from unittest.mock import patch
 import pytest
 from types_aiobotocore_dynamodb import DynamoDBClient
 
-from app.ai_assistant_langchain.tools import get_schedule, NO_TIMETABLE_FILTER
+from app.ai_assistant_langchain.agents.qa.tools import get_schedule, NO_TIMETABLE_FILTER
 from app.api.v1.rooms.enums import Weekday
 from app.api.v1.schedule.schedule_service import open_schedule_service
 from app.api.v1.schedule.schemas import ScheduleEntry
 from app.core.dynamodb.base_service import DynamoDBService
 from app.core.exceptions import NotFoundError
 from app.settings import get_settings
-from tests.factories.factory_creators import (
+from tests.factory_helpers.factory_creators import (
     create_test_class_row,
     create_test_course_row,
     create_test_named_group_row,
     create_test_professor_row,
     create_test_room,
 )
-from tests.factories.factory_deleters import delete_test_room
-from tests.factories.rooms_factory import RoomCreationFactory
+from tests.factory_helpers.factory_deleters import delete_test_room
+from tests.factory_models.rooms_factory import RoomCreationFactory
 
 ALAN = 'Dr. Alan Whitfield'
 SOPHIA = 'Dr. Sophia Martens'
@@ -31,7 +31,7 @@ STRUCTURES = 'Data Structures'
 TURING = 'Turing Hall'
 LOVELACE = 'Lovelace Building'
 
-PATH_TO_SCHEDULE_SERVICE = 'app.ai_assistant_langchain.tools.open_schedule_service'
+PATH_TO_SCHEDULE_SERVICE = 'app.ai_assistant_langchain.agents.qa.tools.open_schedule_service'
 
 
 @contextmanager

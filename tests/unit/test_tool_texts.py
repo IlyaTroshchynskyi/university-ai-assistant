@@ -3,13 +3,14 @@ import re
 from langchain_core.tools import BaseTool
 import pytest
 
+from app.ai_assistant_langchain.agents.booking.prompts import BOOKING_SYSTEM_PROMPT_TEMPLATE
+from app.ai_assistant_langchain.agents.booking.tools import BOOKING_TOOLS
+from app.ai_assistant_langchain.agents.qa.prompts import MAIN_CHAT_PROMPT
+from app.ai_assistant_langchain.agents.qa.tools import ASSISTANT_TOOLS
 from app.ai_assistant_langchain.applicant_documents.document_rules import ISSUE_CODES
 from app.ai_assistant_langchain.applicant_documents.enums import FileOutcome
 from app.ai_assistant_langchain.applicant_documents.schemas import Verdict
-from app.ai_assistant_langchain.booking_tools import BOOKING_TOOLS
-from app.ai_assistant_langchain.prompts import BOOKING_SYSTEM_PROMPT_TEMPLATE, MAIN_CHAT_PROMPT
 from app.ai_assistant_langchain.schemas import ATTACHMENT_LINE_TEMPLATE
-from app.ai_assistant_langchain.tools import ASSISTANT_TOOLS
 
 ASSISTANT_TOOL_NAMES = [tool.name for tool in ASSISTANT_TOOLS]
 BOOKING_TOOL_NAMES = [tool.name for tool in BOOKING_TOOLS]

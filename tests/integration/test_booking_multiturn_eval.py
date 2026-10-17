@@ -9,10 +9,10 @@ from httpx import AsyncClient
 import pytest
 from types_aiobotocore_dynamodb import DynamoDBClient
 
-from app.ai_assistant_langchain.main_graph import build_main_graph
+from app.ai_assistant_langchain.graph.main_graph import build_main_graph
 from tests.conftest import TestBaseClientClass
-from tests.factories.factory_creators import reset_test_slot_rows
-from tests.factories.factory_getters import get_test_slots_on_date
+from tests.factory_helpers.factory_creators import reset_test_slot_rows
+from tests.factory_helpers.factory_getters import get_test_slots_on_date
 from tests.integration.booking_conversations import (
     APPROVE,
     BOOKING_CONVERSATIONS,

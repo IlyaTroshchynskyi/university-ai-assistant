@@ -8,7 +8,7 @@ the test's own parameter).
 from langchain_core.messages import AIMessage
 from qdrant_client.models import ScoredPoint
 
-PATH_TO_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.tools.get_knowledge_service'
+PATH_TO_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.agents.qa.tools.get_knowledge_service'
 
 
 class StubKnowledgeService:

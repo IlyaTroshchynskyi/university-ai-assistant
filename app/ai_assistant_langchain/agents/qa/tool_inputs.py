@@ -1,34 +1,12 @@
-# `import datetime`, as in `booking_tools.py`: the tool argument is itself called `date`, and a
-# field of that name shadows the imported class, which stops pydantic at import time.
-import datetime
-from typing import Annotated, NotRequired, TypedDict
+from typing import Annotated
 
-from langchain.agents.middleware.types import AgentState
-from langchain_core.messages import BaseMessage
-from langgraph.types import Interrupt
-from pydantic import BaseModel, BeforeValidator, EmailStr, Field
+from pydantic import BaseModel, BeforeValidator, Field
 
-from app.ai_assistant_langchain.applicant_documents.schemas import DocumentImage
 from app.api.v1.rooms.enums import Weekday
 from app.api.v1.scholarships.enums import Faculty
 
 DEFAULT_COMMON_ISSUE_COUNT = 5
 MAX_COMMON_ISSUE_COUNT = 20
-
-
-class CustomContext(BaseModel):
-    user_id: str
-    documents: list[DocumentImage] = Field(
-        default_factory=list,
-        description=(
-            'The files attached to the message being answered, in the order they were attached. '
-            'Empty on a message that carries none.'
-        ),
-    )
-
-
-class AssistantAgentState(AgentState):
-    documents_on_file: list[dict[str, object]]
 
 
 class RetrieverToolInput(BaseModel):
@@ -133,68 +111,3 @@ class CompareProgramsToolInput(BaseModel):
             'faculty, and not the word "programme" appended to it. Between two and five.'
         ),
     )
-
-
-class ListFreeSlotsToolInput(BaseModel):
-    """Input schema for the ListFreeSlotsTool."""
-
-    date: datetime.date = Field(
-        description="The day to look at, 'YYYY-MM-DD'.",
-    )
-
-
-class ListMyBookingsToolInput(BaseModel):
-    """Input schema for the ListMyBookingsTool."""
-
-    applicant_email: EmailStr = Field(
-        description='The email address the appointment was booked under.',
-    )
-
-
-class SlotKeyToolInput(BaseModel):
-    """The three fields that identify one slot. All of them come from `list_free_slots`."""
-
-    slot_id: int = Field(description='The slot id.')
-    date: datetime.date = Field(description="The slot's date, 'YYYY-MM-DD'.")
-    # A pattern, not `datetime.time`: the sort key is built as f'{start_time}#{slot_id}', and
-    # `time.isoformat()` renders '09:00' as '09:00:00', so the key would stop matching for every
-    # slot there is. The pattern checks the one thing that matters — the shape the key is made of —
-    # and changes nothing. It also rejects '9:00', which today keys '9:00#101' and comes back as a
-    # phantom "that slot is no longer available".
-    start_time: str = Field(
-        pattern=r'^([01]\d|2[0-3]):[0-5]\d$',
-        description="The slot's start time, 'HH:MM'.",
-    )
-
-
-class BookAppointmentToolInput(SlotKeyToolInput):
-    """Input schema for the BookAppointmentTool."""
-
-    applicant_email: EmailStr = Field(
-        description=(
-            'The email address the applicant gave, exactly as they wrote it. It identifies the booking '
-            'and is how they are reached about it later.'
-        ),
-    )
-    topic: str = Field(
-        description=(
-            'The subject the applicant said they want to discuss, in their own words: what they want '
-            'out of the meeting, not a name for the meeting itself.'
-        ),
-    )
-
-
-class CancelAppointmentToolInput(SlotKeyToolInput):
-    """Input schema for the CancelAppointmentTool."""
-
-    applicant_email: EmailStr = Field(
-        description='The email address the appointment is booked under.',
-    )
-
-
-class AgentResponse(TypedDict):
-    messages: list[BaseMessage]
-
-    __interrupt__: NotRequired[list[Interrupt]]
-    """Present only when the graph paused. LangGraph puts it into the returned state itself, which
-    is why it is spelled with the dunders: this is the key it actually uses, not one we chose."""

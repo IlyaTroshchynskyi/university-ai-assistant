@@ -5,7 +5,7 @@ from pydantic import ValidationError
 import pymupdf
 import pytest
 
-from app.ai_assistant_langchain.tools import ASSISTANT_TOOLS, check_scholarship
+from app.ai_assistant_langchain.agents.qa.tools import ASSISTANT_TOOLS, check_scholarship
 from app.api.v1.scholarships import scholarship_rules as rules
 from app.api.v1.scholarships.enums import Faculty
 from app.api.v1.scholarships.schemas import ScholarshipCheck

@@ -8,13 +8,14 @@ from langgraph.graph.state import CompiledStateGraph, StateGraph
 from langgraph.runtime import Runtime
 from pydantic import BaseModel
 
-from app.ai_assistant_langchain.agent import create_assistant_agent, create_booking_agent
-from app.ai_assistant_langchain.agent_model import get_structured_output_model_factory
-from app.ai_assistant_langchain.agent_schemas import CustomContext
+from app.ai_assistant_langchain.agents.booking.agent import create_booking_agent
+from app.ai_assistant_langchain.agents.qa.agent import create_assistant_agent
+from app.ai_assistant_langchain.agents.qa.tools import DIRECT_ANSWER_TOOLS
 from app.ai_assistant_langchain.checkpointer.saver import get_checkpointer
-from app.ai_assistant_langchain.enums import GraphNode
-from app.ai_assistant_langchain.prompts import build_router_prompt
-from app.ai_assistant_langchain.tools import DIRECT_ANSWER_TOOLS
+from app.ai_assistant_langchain.graph.enums import GraphNode
+from app.ai_assistant_langchain.graph.models import get_structured_output_model_factory
+from app.ai_assistant_langchain.graph.prompts import build_router_prompt
+from app.ai_assistant_langchain.graph.schemas import CustomContext
 
 NO_HISTORY = '(no earlier messages — the conversation starts here)'
 

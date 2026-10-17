@@ -19,7 +19,7 @@ from app.ai_assistant_langchain.applicant_documents.document_reader import (
 from app.ai_assistant_langchain.applicant_documents.enums import ImageFormat
 from app.ai_assistant_langchain.applicant_documents.schemas import DocumentImage
 from app.core.exceptions import DocumentTooLargeError, UnsupportedDocumentError
-from tests.factories.applicant_factory import build_document_image, PassportFieldsFactory
+from tests.factory_models.applicant_factory import build_document_image, PassportFieldsFactory
 
 PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
 JPEG_SIGNATURE = b'\xff\xd8\xff'
