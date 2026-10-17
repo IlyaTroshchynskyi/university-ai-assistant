@@ -97,3 +97,11 @@ def normalize_name_key(full_name: str) -> str:
     while parts and parts[0].rstrip('.') in _HONORIFICS:
         parts = parts[1:]
     return ' '.join(parts)
+
+
+def build_issue_votes_key(votes: int, issue_id: int | str) -> str:
+    return f'{votes:04d}#{issue_id}'
+
+
+def build_issue_status_key(status: str) -> str:
+    return f'STATUS#{status}'

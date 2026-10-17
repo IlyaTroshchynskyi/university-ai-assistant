@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     DYNAMODB_PLACES_TABLE: str = 'places'
     DYNAMODB_GROUPS_TABLE: str = 'academic_groups'
     DYNAMODB_SLOTS_TABLE: str = 'appointment_slots'
+    DYNAMODB_ISSUES_TABLE: str = 'reported_issues'
     # The LangGraph checkpointer's table — the agent's own state, one partition per thread.
     DYNAMODB_CHECKPOINTS_TABLE: str = 'agent_checkpoints'
     # What was said, as opposed to what the agent needed to say it: a row per message, one partition

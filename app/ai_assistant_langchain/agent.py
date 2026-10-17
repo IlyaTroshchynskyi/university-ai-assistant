@@ -19,7 +19,7 @@ from app.ai_assistant_langchain.prompts import (
     build_booking_system_prompt,
     MAIN_CHAT_PROMPT,
 )
-from app.ai_assistant_langchain.tools import ASSISTANT_TOOLS
+from app.ai_assistant_langchain.tools import ASSISTANT_TOOLS, report_issue
 
 
 @lru_cache
@@ -38,6 +38,14 @@ def create_assistant_agent() -> CompiledStateGraph:
                 model=model,
                 trigger=('tokens', 8000),
                 keep=('messages', 20),
+            ),
+            HumanInTheLoopMiddleware(
+                interrupt_on={
+                    report_issue.name: {
+                        'allowed_decisions': ['approve', 'edit', 'reject'],
+                        'description': _describe_issue_report,
+                    },
+                },
             ),
         ],
     )
@@ -75,6 +83,11 @@ def _describe_cancellation(tool_call: ToolCall, state: AgentState, runtime: Runt
     """The cancellation half of ``_describe_booking``. No topic — cancelling does not take one."""
     args = tool_call['args']
     return f'Cancel the consultation on {args["date"]} at {args["start_time"]} booked under {args["applicant_email"]}.'
+
+
+def _describe_issue_report(tool_call: ToolCall, state: AgentState, runtime: Runtime[CustomContext]) -> str:
+    args = tool_call['args']
+    return f'File a {args["category"]} issue: {args["text"]}'
 
 
 @lru_cache

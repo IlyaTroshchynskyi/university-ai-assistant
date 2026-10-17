@@ -10,8 +10,6 @@ from db.load_dynamodb import table_definition
 from app.core.dynamodb.base_service import DynamoDBService, Item
 from app.settings import get_settings
 
-ISSUES_TABLE = 'reported_issues_test'
-
 BATCH_WRITE_LIMIT = 25
 
 Seeder = Callable[[DynamoDBService, list[Item]], Awaitable[None]]
@@ -55,7 +53,7 @@ def get_table_specs() -> TableSpecs:
         'places': TableSpec(name=settings.DYNAMODB_PLACES_TABLE, gsi_numbers=[]),
         'groups': TableSpec(name=settings.DYNAMODB_GROUPS_TABLE, gsi_numbers=[1, 2]),
         'slots': TableSpec(name=settings.DYNAMODB_SLOTS_TABLE, gsi_numbers=[1, 2], ttl_attribute='expires_at'),
-        'issues': TableSpec(name=ISSUES_TABLE, gsi_numbers=[1]),
+        'issues': TableSpec(name=settings.DYNAMODB_ISSUES_TABLE, gsi_numbers=[1]),
         'checkpoints': TableSpec(name=settings.DYNAMODB_CHECKPOINTS_TABLE, gsi_numbers=[]),
         'conversations': TableSpec(name=settings.DYNAMODB_CONVERSATIONS_TABLE, gsi_numbers=[]),
     }

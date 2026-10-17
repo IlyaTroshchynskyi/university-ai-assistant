@@ -18,6 +18,7 @@ from app.core.dynamodb.schemas import Slot
 from app.settings import get_settings
 from tests.db_utils import clear_table, table_service
 from tests.factories.group_factory import GroupRow
+from tests.factories.issue_factory import IssueFactory, IssueRow
 from tests.factories.place_factory import PlaceFactory, PlaceRow
 from tests.factories.professor_factory import ProfessorFactory, ProfessorRow
 from tests.factories.program_factory import ProgramCreationFactory
@@ -80,6 +81,12 @@ async def create_test_place_row(db_client: DynamoDBClient, **overrides: str | in
     """Seed the campus place the multi-turn evaluation asks about."""
     row = PlaceRow.from_entity(PlaceFactory.build(**overrides))
     await table_service(db_client, get_settings().DYNAMODB_PLACES_TABLE).put_item(row)
+    return row
+
+
+async def create_test_issue_row(db_client: DynamoDBClient, **overrides: str | int) -> IssueRow:
+    row = IssueRow.from_entity(IssueFactory.build(**overrides))
+    await table_service(db_client, get_settings().DYNAMODB_ISSUES_TABLE).put_item(row)
     return row
 
 

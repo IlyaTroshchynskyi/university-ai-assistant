@@ -13,7 +13,8 @@ from qdrant_client.models import ScoredPoint
 
 from app.ai_assistant_langchain.applicant_documents.schemas import DocumentFields, DocumentImage
 from app.ai_assistant_langchain.main_graph import build_main_graph
-from app.api.v1.rooms.enums import Weekday
+from app.api.v1.rooms.enums import IssueCategory, IssueStatus, Weekday
+from app.api.v1.rooms.schemas import Issue
 from app.api.v1.schedule.schemas import ScheduleEntry
 from app.core.dynamodb.schemas import Place, Professor
 from tests.conftest import TestBaseClientClass
@@ -36,6 +37,7 @@ PATH_TO_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.tools.get_knowledge_serv
 PATH_TO_PROFESSORS_REPOSITORY = 'app.ai_assistant_langchain.tools.open_professors_repository'
 PATH_TO_PLACES_REPOSITORY = 'app.ai_assistant_langchain.tools.open_places_repository'
 PATH_TO_SCHEDULE_SERVICE = 'app.ai_assistant_langchain.tools.open_schedule_service'
+PATH_TO_ISSUES_REPOSITORY = 'app.ai_assistant_langchain.tools.open_issues_repository'
 PATH_TO_EXTRACTOR = 'app.ai_assistant_langchain.tools.get_extractor'
 # The compare graph searches the knowledge base itself rather than through the `retriever` tool, so
 # its own module-level lookup is a second place to stub — patching the tool's leaves both gather
@@ -76,6 +78,7 @@ ROUTING_CASES = [
     RoutingCase('Tell me about scholarships in general.', ['retriever']),
     RoutingCase('Please check my documents.', ['validate_documents']),
     RoutingCase('Which documents do I need to apply?', ['retriever']),
+    RoutingCase('What do students complain about most?', ['list_common_issues']),
     # Two named programmes weighed against each other. The one case the compare graph exists for:
     # the whole question goes to `compare_programs`, which fans out to both programmes at once —
     # `retriever` twice in a row would be the same answer built the slow way, and reads here as a
@@ -105,6 +108,13 @@ CLASS = ScheduleEntry(
     weekday=Weekday.MON,
     start_time='09:00',
     end_time='10:30',
+)
+ISSUE = Issue(
+    id='1',
+    category=IssueCategory.FACILITIES,
+    text='Wi-Fi keeps dropping in the Turing Hall lecture halls during class.',
+    status=IssueStatus.OPEN,
+    votes=52,
 )
 PASSAGE = 'Tuition for the BSc in Computer Science is $22,500 per year. Applications close on March 1.'
 SCHOLARSHIPS_PASSAGE = (
@@ -193,6 +203,11 @@ class StubScheduleService:
         return [CLASS.model_copy(update={name: value for name, value in asked.items() if value})]
 
 
+class StubIssuesRepository:
+    async def list_most_voted_issues(self, limit: int) -> list[Issue]:
+        return [ISSUE]
+
+
 class StubExtractor:
     async def extract(self, image: DocumentImage) -> DocumentFields:
         return DocumentFields(document_type=None)
@@ -211,6 +226,11 @@ async def stub_places_repository() -> AsyncGenerator[StubPlacesRepository, None]
 @asynccontextmanager
 async def stub_schedule_service() -> AsyncGenerator[StubScheduleService, None]:
     yield StubScheduleService()
+
+
+@asynccontextmanager
+async def stub_issues_repository() -> AsyncGenerator[StubIssuesRepository, None]:
+    yield StubIssuesRepository()
 
 
 async def get_called_tools(user_id: str) -> list[ToolCall]:
@@ -234,6 +254,7 @@ class TestToolRouting(TestBaseClientClass):
             patch(PATH_TO_PROFESSORS_REPOSITORY, stub_professors_repository),
             patch(PATH_TO_PLACES_REPOSITORY, stub_places_repository),
             patch(PATH_TO_SCHEDULE_SERVICE, stub_schedule_service),
+            patch(PATH_TO_ISSUES_REPOSITORY, stub_issues_repository),
             patch(PATH_TO_EXTRACTOR, return_value=StubExtractor()),
         ):
             yield
@@ -252,3 +273,11 @@ class TestToolRouting(TestBaseClientClass):
         )
 
         await assert_metrics(test_case, routing_metrics())
+
+    async def test_report_waits_for_approval_before_it_is_filed(self) -> None:
+        response = await self.not_auth_client.post(
+            ENDPOINT, data={'query': 'Report that the AC in room 210 is broken.', 'user_id': str(uuid.uuid4())}
+        )
+
+        assert response.json()['status'] == 'pending_approval'
+        assert [approval['action'] for approval in response.json()['pending']] == ['report_issue']

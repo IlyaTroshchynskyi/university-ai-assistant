@@ -40,7 +40,7 @@ from boto3.dynamodb.conditions import Attr, Key
 # would drift the moment either side changed.
 from app.api.v1.faculty.schemas import FacultyNameItem
 from app.api.v1.programs.schemas import ProgramNameItem
-from app.core.dynamodb.indexes import normalize_name, normalize_name_key
+from app.core.dynamodb.indexes import build_issue_status_key, build_issue_votes_key, normalize_name, normalize_name_key
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ T_ROOMS = os.getenv('DYNAMODB_ROOMS_TABLE', 'rooms')
 T_PLACES = os.getenv('DYNAMODB_PLACES_TABLE', 'places')
 T_GROUPS = os.getenv('DYNAMODB_GROUPS_TABLE', 'academic_groups')
 T_SLOTS = 'appointment_slots'
-T_ISSUES = 'reported_issues'
+T_ISSUES = os.getenv('DYNAMODB_ISSUES_TABLE', 'reported_issues')
 T_CHECKPOINTS = os.getenv('DYNAMODB_CHECKPOINTS_TABLE', 'agent_checkpoints')
 T_CONVERSATIONS = os.getenv('DYNAMODB_CONVERSATIONS_TABLE', 'conversation_history')
 
@@ -354,12 +354,12 @@ def build_issue_items() -> list[dict[str, Any]]:
     """The reported_issues table. pk=category, sk=votes(zero-padded)#id, GSI1 by status."""
     items = []
     for iss in _load('reported_issues'):
-        votes_sk = f'{iss["votes"]:04d}#{iss["id"]}'
+        votes_sk = build_issue_votes_key(iss['votes'], iss['id'])
         items.append(
             {
                 'pk': iss['category'],
                 'sk': votes_sk,
-                'gsi1pk': f'STATUS#{iss["status"]}',
+                'gsi1pk': build_issue_status_key(iss['status']),
                 'gsi1sk': votes_sk,
                 **_str_ids(iss),
             }

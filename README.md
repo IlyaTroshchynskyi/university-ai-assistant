@@ -518,7 +518,8 @@ Seven suites under `tests/integration`, each measuring one layer. Two score the 
 hand-written goldens with DeepEval: one measures the retriever on its own (`KnowledgeService.search`,
 production defaults), the other measures the answer `POST /langchain-assistant` gives. A third
 asserts *routing* — which of `retriever`, `find_person`, `find_place`, `get_schedule`,
-`check_scholarship`, `validate_documents` a question sends the agent to.
+`check_scholarship`, `validate_documents`, `list_common_issues` a question sends the agent to, and
+that a complaint to file waits for approval before `report_issue` runs.
 Three more are conversational and behavioural, and are described under their own heading below. The
 seventh draws the two applicant sets as images, has the vision extractor read them and compares the
 verdict with the one each set should get.

@@ -10,6 +10,7 @@ from app.core.dynamodb.indexes import KeyAttr
 from app.core.dynamodb.schemas import Slot
 from app.settings import get_settings
 from tests.db_utils import table_service
+from tests.factories.issue_factory import IssueRow
 
 
 async def get_test_room(room_id: str, db_client: DynamoDBClient) -> Room | None:
@@ -47,6 +48,11 @@ async def get_test_program_name_reservation(
 async def get_test_slots_on_date(date: str, db_client: DynamoDBClient) -> dict[int, Slot]:
     rows = await _slots(db_client).query(key_condition=Key(KeyAttr.PK).eq(date), consistent_read=True)
     return {slot.id: slot for slot in map(Slot.model_validate, rows)}
+
+
+async def get_test_issue_rows(db_client: DynamoDBClient) -> list[IssueRow]:
+    rows = await table_service(db_client, get_settings().DYNAMODB_ISSUES_TABLE).scan(consistent_read=True)
+    return [IssueRow.model_validate(row) for row in rows]
 
 
 def _faculties(db_client: DynamoDBClient) -> DynamoDBService:

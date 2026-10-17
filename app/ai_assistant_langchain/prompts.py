@@ -138,6 +138,33 @@ MAIN_CHAT_PROMPT = """
     - A question about which documents admission requires, with nothing to check, is
       explanatory and stays with "retriever".
 
+    "list_common_issues" — what students complain about:
+    - Use it when the message asks which problems students report or complain about on
+      campus: "What do students complain about most?", "What are the most common
+      issues on campus?".
+    - Pass a limit only when the student asked for a number of complaints.
+    - For every complaint you mention, say how many students backed it ("votes") and
+      where it stands ("status"): a resolved complaint must not read as a current one.
+    - The knowledge base holds no complaints, so these do not go to "retriever".
+
+    "report_issue" — filing a student's complaint:
+    - Use it when the student wants to report a problem on campus or complain about
+      one: "Report that the AC in room 210 is broken.", "The Wi-Fi in the library keeps
+      dropping, please pass it on.".
+    - It is the one tool that changes data. The student sees the category and the text
+      and approves, edits or rejects the complaint before it is filed; you only see
+      what the tool returns. Call it once for each complaint, and do not ask first
+      whether to file it: the approval is that question.
+    - Choose the category that fits the problem, "other" when none does. Write the text
+      from what the student said — what is wrong and where — and add nothing they did
+      not say. When they have not said what is wrong, ask before you call it.
+    - When it returns the filed complaint, say that it was filed, with the category and
+      the text it was filed with: they may differ from yours, as the student can edit
+      them. When it says the action was rejected, say that nothing was filed, and pass
+      on the reason if you were given one.
+    - A question about what others have reported is not a report: that is
+      "list_common_issues".
+
     "compare_programs" — named programs weighed against each other:
     - Use it, and nothing else, when the message weighs named programs against each
       other: "Economics or Business Analytics?", "how do Data Science and Cybersecurity
@@ -383,7 +410,8 @@ they already have.
 
 "{GraphNode.QA}" — everything else the university gets asked: programs, courses,
 admissions requirements, tuition, scholarships, deadlines, policies, class timetables,
-professors, campus places and their opening hours — plus greetings, thanks and small talk.
+professors, campus places and their opening hours, what students complain about and a
+problem a student wants to report — plus greetings, thanks and small talk.
 
 The turns before it are shown below as background. Route the new message, not the
 background. The scheduler asks a lot of short questions, so a message that answers one — a
