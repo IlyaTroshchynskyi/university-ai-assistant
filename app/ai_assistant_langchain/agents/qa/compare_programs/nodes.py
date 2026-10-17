@@ -3,14 +3,14 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.ai_assistant.university_knowladge.knowledge_service import get_knowledge_service, join_passages, NO_RESULTS
-from app.ai_assistant_langchain.agent_model import get_model_factory
-from app.ai_assistant_langchain.graphs.compare_programs.schemas import (
+from app.ai_assistant_langchain.agents.qa.compare_programs.prompts import COMPARE_PROGRAMS_PROMPT, NOT_IN_KB
+from app.ai_assistant_langchain.agents.qa.compare_programs.schemas import (
     CompareState,
     GatherInput,
     GatherUpdate,
     MergeUpdate,
 )
-from app.ai_assistant_langchain.prompts import COMPARE_PROGRAMS_PROMPT, NOT_IN_KB
+from app.ai_assistant_langchain.graph.models import get_model_factory
 
 logger = logging.getLogger(__name__)
 

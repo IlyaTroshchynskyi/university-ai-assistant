@@ -1,9 +1,13 @@
 from app.api.v1.programs.schemas import ProgramItem, ProgramNameItem
 from tests.conftest import TestBaseClientDBClass
-from tests.factories.factory_creators import create_test_faculty, create_test_group_row, create_test_program
-from tests.factories.factory_getters import get_test_program, get_test_program_name_reservation
-from tests.factories.faculty_factory import FacultyCreationFactory
-from tests.factories.program_factory import ProgramCreationFactory
+from tests.factory_helpers.factory_creators import (
+    create_test_faculty,
+    create_test_group_row,
+    create_test_program,
+)
+from tests.factory_helpers.factory_getters import get_test_program, get_test_program_name_reservation
+from tests.factory_models.faculty_factory import FacultyCreationFactory
+from tests.factory_models.program_factory import ProgramCreationFactory
 
 
 class TestPrograms(TestBaseClientDBClass):

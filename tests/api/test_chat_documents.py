@@ -9,21 +9,21 @@ from langchain_core.messages import AIMessage, ToolMessage
 import pytest
 
 from app.ai_assistant_langchain import runs
+from app.ai_assistant_langchain.agents.qa.tools import UNREAD_DOCUMENTS_NOTICE, validate_documents
 from app.ai_assistant_langchain.applicant_documents.document_reader import MAX_DOCUMENT_BYTES
 from app.ai_assistant_langchain.applicant_documents.enums import ImageFormat
 from app.ai_assistant_langchain.applicant_documents.schemas import DocumentFields, DocumentImage
-from app.ai_assistant_langchain.enums import GraphNode
+from app.ai_assistant_langchain.graph.enums import GraphNode
 from app.ai_assistant_langchain.schemas import (
     ChatSchemaOut,
     DEFAULT_DOCUMENTS_QUERY,
     MAX_FILES_PER_MESSAGE,
     MAX_QUERY_LENGTH,
 )
-from app.ai_assistant_langchain.tools import UNREAD_DOCUMENTS_NOTICE, validate_documents
 from tests.api.factories import booking_tool_call_reply
 from tests.api.test_chat_checkpointer import TestBaseCheckpointerClass
 from tests.api.test_chat_stream import read_events, SSE_HEADERS
-from tests.factories.applicant_factory import (
+from tests.factory_models.applicant_factory import (
     build_broken_documents,
     build_document_files,
     build_documents,
@@ -35,8 +35,8 @@ from tests.factories.applicant_factory import (
 
 ENDPOINT = '/langchain-assistant'
 HISTORY_ENDPOINT = '/langchain-assistant/{user_id}/history'
-PATH_TO_EXTRACTOR = 'app.ai_assistant_langchain.tools.get_extractor'
-PATH_TO_TOOL_DATE = 'app.ai_assistant_langchain.tools.date'
+PATH_TO_EXTRACTOR = 'app.ai_assistant_langchain.agents.qa.tools.get_extractor'
+PATH_TO_TOOL_DATE = 'app.ai_assistant_langchain.agents.qa.tools.date'
 
 PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
 IMAGE_MARKER = b'APPLICANT-DOCUMENT-BYTES'

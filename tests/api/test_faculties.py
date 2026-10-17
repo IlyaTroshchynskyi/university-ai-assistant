@@ -1,13 +1,13 @@
 from app.api.v1.faculty.schemas import FacultyItem
 from tests.conftest import TestBaseClientDBClass
-from tests.factories.factory_creators import create_test_faculty, create_test_program
-from tests.factories.factory_deleters import delete_test_faculty
-from tests.factories.factory_getters import (
+from tests.factory_helpers.factory_creators import create_test_faculty, create_test_program
+from tests.factory_helpers.factory_deleters import delete_test_faculty
+from tests.factory_helpers.factory_getters import (
     get_test_faculty,
     get_test_faculty_dependants,
     get_test_faculty_name_reservation,
 )
-from tests.factories.faculty_factory import FacultyCreationFactory
+from tests.factory_models.faculty_factory import FacultyCreationFactory
 
 
 class TestFaculties(TestBaseClientDBClass):

@@ -2,9 +2,9 @@ from operator import itemgetter
 
 from app.api.v1.rooms.schemas import Room
 from tests.conftest import TestBaseClientDBClass
-from tests.factories.factory_creators import create_test_room
-from tests.factories.factory_getters import get_test_room
-from tests.factories.rooms_factory import RoomCreationFactory
+from tests.factory_helpers.factory_creators import create_test_room
+from tests.factory_helpers.factory_getters import get_test_room
+from tests.factory_models.rooms_factory import RoomCreationFactory
 
 
 class TestRooms(TestBaseClientDBClass):

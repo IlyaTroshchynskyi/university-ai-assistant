@@ -73,14 +73,20 @@ below).
 
 ### The LangGraph assistant
 
-`main_graph.py` is the whole shape: a router (one structured-output LLM call) sends each message to
-one of two subagents, `qa` or `booking`, each a `create_agent` graph added **as a node**. Both are
-compiled without a checkpointer; the main graph owns the only one, and that is what lets a pause
-inside the booking agent surface through the endpoint.
+`graph/main_graph.py` is the whole shape: a router (one structured-output LLM call) sends each
+message to one of two subagents, `qa` or `booking`, each a `create_agent` graph added **as a node**.
+Both are compiled without a checkpointer; the main graph owns the only one, and that is what lets a
+pause inside a subagent surface through the endpoint.
 
-- **QA agent** — `agent.py`, tools in `tools.py` (`ASSISTANT_TOOLS`). `compare_programs` is
-  `return_direct` and runs its own graph (`graphs/compare_programs/`), which fans out one retrieval
-  per programme with `Send` and merges.
+The package is laid out by who uses what. The root is the endpoint: `router.py`, the services it
+calls and the wire schemas. `graph/` is the main graph and what both agents share — `CustomContext`
+and `AgentResponse` (`graph/schemas.py`), `GraphNode`, the chat models, the router prompt. Each
+agent is a folder under `agents/` holding its own `agent.py`, `tools.py`, `tool_inputs.py` and
+`prompts.py`; `compare_programs/`, the one tool with a graph of its own, sits inside `agents/qa/`.
+
+- **QA agent** — `agents/qa/`, tools in `tools.py` (`ASSISTANT_TOOLS`). `compare_programs` is
+  `return_direct` and runs its own graph (`agents/qa/compare_programs/`), which fans out one
+  retrieval per programme with `Send` and merges.
   `check_scholarship` reads nothing: the handbook's scholarship rules are code in
   `app/api/v1/scholarships/scholarship_rules.py`, so a rule that changes in the handbook has to
   change there too — `TestRulesMatchTheHandbook` fails when the two drift. A faculty added through
@@ -118,11 +124,11 @@ inside the booking agent surface through the endpoint.
   `FileOutcome` enum are the two vocabularies the model reads; a value added to either has to be
   explained in the matching `Verdict` field description and in `MAIN_CHAT_PROMPT`, which is the one
   place the model learns what they mean, and `tests/unit/test_tool_texts.py` fails until it is.
-- **Booking agent** — tools in `booking_tools.py`. The two that write (`book_appointment`,
+- **Booking agent** — `agents/booking/`, tools in `tools.py`. The two that write (`book_appointment`,
   `cancel_appointment`) sit behind `HumanInTheLoopMiddleware`: the graph interrupts, the API answers
   `status: "pending_approval"`, and the next request carries `decisions` (approve / edit / reject)
   instead of `query` to resume. A thread that is paused refuses a new message with a 409.
-- **Request path** — `router.py` → `ChatService` (`service.py`: one turn, JSON or SSE, and what gets
+- **Request path** — `router.py` → `ChatService` (`chat_service.py`: one turn, JSON or SSE, and what gets
   recorded) → `AgentService` (`agent_service.py`: invoke, resume, stream, validate decisions) plus
   `ConversationHistoryService` (`history/`). The request is a form, `UserQuery` read through
   `Form()`: `query`, or `decisions` as a JSON array in one field, or `query` with up to
@@ -147,7 +153,7 @@ inside the booking agent surface through the endpoint.
 The graph, both agents and the chat model are `lru_cache`d factories. The booking prompt is rebuilt
 per call (it carries today's date); the QA prompt is a constant and knows no date.
 
-There are two chat models (`agent_model.py`). `get_model_factory` is the one whose answers are
+There are two chat models (`graph/models.py`). `get_model_factory` is the one whose answers are
 shown, and it streams. `get_structured_output_model_factory` is for a call whose answer is parsed
 and never shown — the router's — and is built with `disable_streaming=True`, as is the extractor's
 vision model. Under a streamed turn LangGraph makes every model call in the graph stream, and
@@ -191,15 +197,17 @@ place they become HTTP status codes.
 
 - `tests/api/` drives the app over HTTP with `StubChatModel` (`tests/agent_stubs.py`): scripted
   replies, scripted routes, real graph, real checkpointer. The stub is installed by patching the
-  model factory under **each importing module's own name** — `get_model_factory` in `agent.py`,
-  `get_structured_output_model_factory` in `main_graph.py` — and clearing all three graph caches.
+  model factory under **each importing module's own name** — `get_model_factory` in each agent's
+  `agent.py`, `get_structured_output_model_factory` in `graph/main_graph.py` — and clearing all
+  three graph caches.
 - `tests/dynamodb/` calls savers and services directly against the local DynamoDB.
 - `tests/unit/` is for pure functions and needs neither DynamoDB nor a model.
-- `tests/factories/` holds row models that mirror what the seeder writes, plus creators, getters and
-  deleters. Seed rows through these rather than through the agent. `applicant_factory.py` builds the
-  course's two applicant sets and draws any document as a PNG; `SAMPLE_DAY` is the date they are
-  judged on, and a test that reaches the rules through the tool freezes the tool's date to it, so
-  the sample passport does not expire under the suite.
+- `tests/factory_models/` holds the row models that mirror what the seeder writes and the
+  polyfactory factories; `tests/factory_helpers/` holds the creators, getters and deleters.
+  Seed rows through these rather than through the agent. `factory_models/applicant_factory.py`
+  builds the course's two applicant sets and draws any document as a PNG; `SAMPLE_DAY` is the date
+  they are judged on, and a test that reaches the rules through the tool freezes the tool's date to
+  it, so the sample passport does not expire under the suite.
 - Test data is built in the test, not loaded from the repository: no sample images, JSON or PDFs
   are checked in (`*png` and `*pdf` are gitignored). A test that needs a file draws or writes it.
 - Each table has a fixture in `tests/conftest.py` that hands out a service and **empties the table
@@ -230,9 +238,9 @@ place they become HTTP status codes.
   the argument is and its format, and a result only what happened — none of them names another tool
   or tells the model what to do next. `tests/unit/test_tool_texts.py` holds the part of that a test
   can check, over `ASSISTANT_TOOLS` and `BOOKING_TOOLS`.
-- Adding a QA tool means: input schema in `agent_schemas.py`, the tool and `ASSISTANT_TOOLS` in
-  `tools.py`, a section in `MAIN_CHAT_PROMPT`, and a stub plus cases in
-  `tests/integration/test_tool_routing_eval.py`.
+- Adding a QA tool means, in `agents/qa/`: input schema in `tool_inputs.py`, the tool and
+  `ASSISTANT_TOOLS` in `tools.py`, a section in `MAIN_CHAT_PROMPT` (`prompts.py`); and a stub plus
+  cases in `tests/integration/test_tool_routing_eval.py`.
 - Concurrent awaits use `asyncio.TaskGroup`. A failure inside one arrives as an `ExceptionGroup`;
   `checkpointer/saver.py` shows the `except*` unwrap for when the original type has to surface.
 - **Naming:** functions start with a verb that names the operation (`find_`, `build_`, `check_`,

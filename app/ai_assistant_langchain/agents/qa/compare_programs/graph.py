@@ -4,9 +4,9 @@ from langgraph.constants import END, START
 from langgraph.graph.state import CompiledStateGraph, StateGraph
 from langgraph.types import Send
 
-from app.ai_assistant_langchain.agent_schemas import CustomContext
-from app.ai_assistant_langchain.graphs.compare_programs.nodes import gather, merge
-from app.ai_assistant_langchain.graphs.compare_programs.schemas import CompareState
+from app.ai_assistant_langchain.agents.qa.compare_programs.nodes import gather, merge
+from app.ai_assistant_langchain.agents.qa.compare_programs.schemas import CompareState
+from app.ai_assistant_langchain.graph.schemas import CustomContext
 
 GATHER = 'gather'
 MERGE = 'merge'

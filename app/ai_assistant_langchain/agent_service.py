@@ -15,9 +15,9 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, StreamPart
 
-from app.ai_assistant_langchain.agent_schemas import AgentResponse, CustomContext
 from app.ai_assistant_langchain.applicant_documents.schemas import DocumentImage
-from app.ai_assistant_langchain.main_graph import build_main_graph
+from app.ai_assistant_langchain.graph.main_graph import build_main_graph
+from app.ai_assistant_langchain.graph.schemas import AgentResponse, CustomContext
 from app.ai_assistant_langchain.schemas import Decision
 from app.core.exceptions import ConflictingStatusError
 

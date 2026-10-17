@@ -2,12 +2,12 @@ from pydantic import ValidationError
 import pytest
 from types_aiobotocore_dynamodb import DynamoDBClient
 
-from app.ai_assistant_langchain.tools import list_common_issues, report_issue
+from app.ai_assistant_langchain.agents.qa.tools import list_common_issues, report_issue
 from app.api.v1.rooms.enums import IssueCategory, IssueStatus
 from app.api.v1.rooms.schemas import Issue
-from tests.factories.factory_creators import create_test_issue_row
-from tests.factories.factory_getters import get_test_issue_rows
-from tests.factories.issue_factory import IssueRow
+from tests.factory_helpers.factory_creators import create_test_issue_row
+from tests.factory_helpers.factory_getters import get_test_issue_rows
+from tests.factory_models.issue_factory import IssueRow
 
 REPORTED_TEXT = 'The air conditioning in room 210 of Turing Hall is broken.'
 REPORT = {'category': IssueCategory.FACILITIES, 'text': REPORTED_TEXT}

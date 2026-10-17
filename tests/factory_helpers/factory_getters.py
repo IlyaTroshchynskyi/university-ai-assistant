@@ -10,7 +10,7 @@ from app.core.dynamodb.indexes import KeyAttr
 from app.core.dynamodb.schemas import Slot
 from app.settings import get_settings
 from tests.db_utils import table_service
-from tests.factories.issue_factory import IssueRow
+from tests.factory_models.issue_factory import IssueRow
 
 
 async def get_test_room(room_id: str, db_client: DynamoDBClient) -> Room | None:

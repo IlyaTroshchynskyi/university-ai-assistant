@@ -9,11 +9,11 @@ from langchain_core.tools import tool
 from langgraph.types import Command
 
 from app.ai_assistant.university_knowladge.knowledge_service import get_knowledge_service, join_passages
-from app.ai_assistant_langchain.agent_schemas import (
-    AssistantAgentState,
+from app.ai_assistant_langchain.agents.qa.compare_programs.graph import get_compare_programs_graph
+from app.ai_assistant_langchain.agents.qa.state import AssistantAgentState
+from app.ai_assistant_langchain.agents.qa.tool_inputs import (
     CheckScholarshipToolInput,
     CompareProgramsToolInput,
-    CustomContext,
     DEFAULT_COMMON_ISSUE_COUNT,
     FindPersonToolInput,
     FindPlaceToolInput,
@@ -25,7 +25,7 @@ from app.ai_assistant_langchain.applicant_documents.document_rules import check_
 from app.ai_assistant_langchain.applicant_documents.enums import DocumentField
 from app.ai_assistant_langchain.applicant_documents.extractors import extract_document_fields, get_extractor
 from app.ai_assistant_langchain.applicant_documents.schemas import DocumentFields
-from app.ai_assistant_langchain.graphs.compare_programs.graph import get_compare_programs_graph
+from app.ai_assistant_langchain.graph.schemas import CustomContext
 from app.api.v1.issues.issues_repository import open_issues_repository
 from app.api.v1.places.places_repository import open_places_repository
 from app.api.v1.professors.professors_repository import open_professors_repository
@@ -301,7 +301,7 @@ def _mask_document_identifiers(fields: DocumentFields) -> DocumentFields:
     masked_identifiers = {
         field.value: _mask_identifier(identifier)
         for field in IDENTIFIER_FIELDS
-        if (identifier := getattr(fields, field))
+        if (identifier := getattr(fields, field)) and identifier.strip()
     }
     return fields.model_copy(update=masked_identifiers)
 

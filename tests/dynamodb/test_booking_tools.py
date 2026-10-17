@@ -1,6 +1,6 @@
 import pytest
 
-from app.ai_assistant_langchain.booking_tools import (
+from app.ai_assistant_langchain.agents.booking.tools import (
     book_appointment,
     cancel_appointment,
     find_earliest_open_slots,

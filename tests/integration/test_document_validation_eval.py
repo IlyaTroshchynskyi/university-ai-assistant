@@ -5,7 +5,7 @@ import pytest
 from app.ai_assistant_langchain.applicant_documents.document_rules import check_applicant_documents
 from app.ai_assistant_langchain.applicant_documents.extractors import extract_document_fields, get_extractor
 from app.ai_assistant_langchain.applicant_documents.schemas import DocumentFields
-from tests.factories.applicant_factory import (
+from tests.factory_models.applicant_factory import (
     BROKEN_SET_ISSUES,
     build_broken_documents,
     build_document_images,

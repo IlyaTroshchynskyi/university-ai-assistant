@@ -12,7 +12,7 @@ import pytest
 from qdrant_client.models import ScoredPoint
 
 from app.ai_assistant_langchain.applicant_documents.schemas import DocumentFields, DocumentImage
-from app.ai_assistant_langchain.main_graph import build_main_graph
+from app.ai_assistant_langchain.graph.main_graph import build_main_graph
 from app.api.v1.rooms.enums import IssueCategory, IssueStatus, Weekday
 from app.api.v1.rooms.schemas import Issue
 from app.api.v1.schedule.schemas import ScheduleEntry
@@ -33,16 +33,16 @@ pytestmark = [
 ]
 
 ENDPOINT = '/langchain-assistant'
-PATH_TO_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.tools.get_knowledge_service'
-PATH_TO_PROFESSORS_REPOSITORY = 'app.ai_assistant_langchain.tools.open_professors_repository'
-PATH_TO_PLACES_REPOSITORY = 'app.ai_assistant_langchain.tools.open_places_repository'
-PATH_TO_SCHEDULE_SERVICE = 'app.ai_assistant_langchain.tools.open_schedule_service'
-PATH_TO_ISSUES_REPOSITORY = 'app.ai_assistant_langchain.tools.open_issues_repository'
-PATH_TO_EXTRACTOR = 'app.ai_assistant_langchain.tools.get_extractor'
+PATH_TO_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.agents.qa.tools.get_knowledge_service'
+PATH_TO_PROFESSORS_REPOSITORY = 'app.ai_assistant_langchain.agents.qa.tools.open_professors_repository'
+PATH_TO_PLACES_REPOSITORY = 'app.ai_assistant_langchain.agents.qa.tools.open_places_repository'
+PATH_TO_SCHEDULE_SERVICE = 'app.ai_assistant_langchain.agents.qa.tools.open_schedule_service'
+PATH_TO_ISSUES_REPOSITORY = 'app.ai_assistant_langchain.agents.qa.tools.open_issues_repository'
+PATH_TO_EXTRACTOR = 'app.ai_assistant_langchain.agents.qa.tools.get_extractor'
 # The compare graph searches the knowledge base itself rather than through the `retriever` tool, so
 # its own module-level lookup is a second place to stub — patching the tool's leaves both gather
 # branches talking to a Qdrant this suite is not allowed to need.
-PATH_TO_COMPARE_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.graphs.compare_programs.nodes.get_knowledge_service'
+PATH_TO_COMPARE_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.agents.qa.compare_programs.nodes.get_knowledge_service'
 
 
 @dataclass

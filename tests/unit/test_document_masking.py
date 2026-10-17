@@ -1,8 +1,8 @@
 import pytest
 
+from app.ai_assistant_langchain.agents.qa.tools import _mask_document_identifiers
 from app.ai_assistant_langchain.applicant_documents.enums import DocumentField
-from app.ai_assistant_langchain.tools import _mask_document_identifiers
-from tests.factories.applicant_factory import (
+from tests.factory_models.applicant_factory import (
     CertificateFieldsFactory,
     DocumentFieldsFactory,
     PassportFieldsFactory,

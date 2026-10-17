@@ -1,53 +1,40 @@
 from functools import lru_cache
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import (
-    dynamic_prompt,
-    HumanInTheLoopMiddleware,
-    ModelRequest,
-    SummarizationMiddleware,
-)
+from langchain.agents.middleware import dynamic_prompt, HumanInTheLoopMiddleware, ModelRequest
 from langchain.agents.middleware.types import AgentState
 from langchain_core.messages import ToolCall
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.runtime import Runtime
 
-from app.ai_assistant_langchain.agent_model import get_model_factory
-from app.ai_assistant_langchain.agent_schemas import AssistantAgentState, CustomContext
-from app.ai_assistant_langchain.booking_tools import book_appointment, BOOKING_TOOLS, cancel_appointment
-from app.ai_assistant_langchain.prompts import (
-    build_booking_system_prompt,
-    MAIN_CHAT_PROMPT,
-)
-from app.ai_assistant_langchain.tools import ASSISTANT_TOOLS, report_issue
+from app.ai_assistant_langchain.agents.booking.prompts import build_booking_system_prompt
+from app.ai_assistant_langchain.agents.booking.tools import book_appointment, BOOKING_TOOLS, cancel_appointment
+from app.ai_assistant_langchain.graph.models import get_model_factory
+from app.ai_assistant_langchain.graph.schemas import CustomContext
 
 
 @lru_cache
-def create_assistant_agent() -> CompiledStateGraph:
-    model = get_model_factory()
+def create_booking_agent() -> CompiledStateGraph:
     return create_agent(
-        model=model,
-        system_prompt=MAIN_CHAT_PROMPT,
-        tools=ASSISTANT_TOOLS,
-        state_schema=AssistantAgentState,
+        model=get_model_factory(),
+        tools=BOOKING_TOOLS,
         context_schema=CustomContext,
-        # NO checkpointer — `build_main_graph` owns it. A subgraph compiled with a saver of its own
-        # runs on its own thread, and the parent's thread_id and interrupt plumbing break with it.
         middleware=[
-            SummarizationMiddleware(
-                model=model,
-                trigger=('tokens', 8000),
-                keep=('messages', 20),
-            ),
+            _booking_prompt,
             HumanInTheLoopMiddleware(
                 interrupt_on={
-                    report_issue.name: {
+                    book_appointment.name: {
                         'allowed_decisions': ['approve', 'edit', 'reject'],
-                        'description': _describe_issue_report,
+                        'description': _describe_booking,
+                    },
+                    cancel_appointment.name: {
+                        'allowed_decisions': ['approve', 'reject'],
+                        'description': _describe_cancellation,
                     },
                 },
             ),
         ],
+        # NO checkpointer — the main graph owns it
     )
 
 
@@ -83,33 +70,3 @@ def _describe_cancellation(tool_call: ToolCall, state: AgentState, runtime: Runt
     """The cancellation half of ``_describe_booking``. No topic — cancelling does not take one."""
     args = tool_call['args']
     return f'Cancel the consultation on {args["date"]} at {args["start_time"]} booked under {args["applicant_email"]}.'
-
-
-def _describe_issue_report(tool_call: ToolCall, state: AgentState, runtime: Runtime[CustomContext]) -> str:
-    args = tool_call['args']
-    return f'File a {args["category"]} issue: {args["text"]}'
-
-
-@lru_cache
-def create_booking_agent() -> CompiledStateGraph:
-    return create_agent(
-        model=get_model_factory(),
-        tools=BOOKING_TOOLS,
-        context_schema=CustomContext,
-        middleware=[
-            _booking_prompt,
-            HumanInTheLoopMiddleware(
-                interrupt_on={
-                    book_appointment.name: {
-                        'allowed_decisions': ['approve', 'edit', 'reject'],
-                        'description': _describe_booking,
-                    },
-                    cancel_appointment.name: {
-                        'allowed_decisions': ['approve', 'reject'],
-                        'description': _describe_cancellation,
-                    },
-                },
-            ),
-        ],
-        # NO checkpointer — the main graph owns it
-    )
