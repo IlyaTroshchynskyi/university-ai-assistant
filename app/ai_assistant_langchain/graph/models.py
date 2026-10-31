@@ -8,7 +8,7 @@ from app.settings import get_settings
 
 
 @lru_cache
-def get_model_factory() -> BaseChatModel | _ConfigurableModel:
+def get_chat_model() -> BaseChatModel | _ConfigurableModel:
     settings = get_settings()
     return init_chat_model(
         model=settings.MODEL_NAME,
@@ -21,7 +21,7 @@ def get_model_factory() -> BaseChatModel | _ConfigurableModel:
 
 
 @lru_cache
-def get_structured_output_model_factory() -> BaseChatModel | _ConfigurableModel:
+def get_structured_output_model() -> BaseChatModel | _ConfigurableModel:
     settings = get_settings()
     return init_chat_model(
         model=settings.MODEL_NAME,

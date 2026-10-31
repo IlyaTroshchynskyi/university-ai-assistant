@@ -44,13 +44,13 @@ class ProgramNameItem(BaseModel):
     program_id: str
 
     @classmethod
-    def key(cls, faculty_id: str, name: str) -> dict[str, str]:
+    def build_key(cls, faculty_id: str, name: str) -> dict[str, str]:
         return {'pk': f'{cls.entity}#{faculty_id}#{normalize_name(name)}', 'sk': cls.unique_sk}
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def pk(self) -> str:
-        return self.key(self.faculty_id, self.name)['pk']
+        return self.build_key(self.faculty_id, self.name)['pk']
 
     @computed_field  # type: ignore[prop-decorator]
     @property

@@ -18,12 +18,12 @@ from app.ai_assistant_langchain.graph.enums import GraphNode
 import app.ai_assistant_langchain.graph.main_graph as main_graph_module
 from app.ai_assistant_langchain.graph.main_graph import build_main_graph
 
-# Each importing module's own name, not ``graph.models.get_model_factory`` where the factory
+# Each importing module's own name, not ``graph.models.get_chat_model`` where the factory
 # lives: every module binds it with ``from … import`` at import time, so patching it at the source
 # would leave the copies they already hold — and the graph would build on the real model.
-PATH_TO_QA_MODEL_FACTORY = 'app.ai_assistant_langchain.agents.qa.agent.get_model_factory'
-PATH_TO_BOOKING_MODEL_FACTORY = 'app.ai_assistant_langchain.agents.booking.agent.get_model_factory'
-PATH_TO_ROUTER_MODEL_FACTORY = 'app.ai_assistant_langchain.graph.main_graph.get_structured_output_model_factory'
+PATH_TO_QA_MODEL_FACTORY = 'app.ai_assistant_langchain.agents.qa.agent.get_chat_model'
+PATH_TO_BOOKING_MODEL_FACTORY = 'app.ai_assistant_langchain.agents.booking.agent.get_chat_model'
+PATH_TO_ROUTER_MODEL_FACTORY = 'app.ai_assistant_langchain.graph.main_graph.get_structured_output_model'
 DEFAULT_STUB_REPLY = 'Stubbed assistant reply.'
 DEFAULT_STUB_ROUTE = GraphNode.QA
 
@@ -180,6 +180,6 @@ def _clear_graph_caches() -> None:
     """Every cached factory between the model and the compiled graph. All three, because the main
     graph holds the subagents it was built with — clearing only the outer one would hand the stub
     graph a pair of subagents wired to the real model."""
-    qa_agent_module.create_assistant_agent.cache_clear()
-    booking_agent_module.create_booking_agent.cache_clear()
+    qa_agent_module.build_assistant_agent.cache_clear()
+    booking_agent_module.build_booking_agent.cache_clear()
     main_graph_module.build_main_graph.cache_clear()

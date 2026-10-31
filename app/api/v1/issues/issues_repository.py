@@ -28,9 +28,9 @@ class IssuesRepository(DynamoDBService):
         return sorted(issues, key=lambda issue: issue.votes, reverse=True)[:limit]
 
     async def create_issue(self, creation: IssueCreate) -> Issue:
-        item = IssueItem(id=str(uuid4()), status=IssueStatus.OPEN, votes=0, **creation.model_dump())
-        await self.put_item(item, condition=Attr(KeyAttr.PK).not_exists())
-        return Issue.model_validate(item.model_dump())
+        issue_item = IssueItem(id=str(uuid4()), status=IssueStatus.OPEN, votes=0, **creation.model_dump())
+        await self.put_item(issue_item, condition=Attr(KeyAttr.PK).not_exists())
+        return Issue.model_validate(issue_item.model_dump())
 
     async def _list_most_voted_issues_with_status(self, status: IssueStatus, limit: int) -> list[Issue]:
         rows = await self.query(

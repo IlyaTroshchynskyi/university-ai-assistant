@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from app.ai_assistant_langchain.applicant_documents.schemas import DocumentImage
 
 
-class CustomContext(BaseModel):
+class AgentRunContext(BaseModel):
     user_id: str
     documents: list[DocumentImage] = Field(
         default_factory=list,

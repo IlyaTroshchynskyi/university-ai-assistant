@@ -50,6 +50,7 @@ def pytest_configure(config: pytest.Config) -> None:
     if not config.getoption(RUN_EVAL_OPTION):
         os.environ.setdefault('OPENAI_API_KEY', 'test-key')
 
+    os.environ['LANGSMITH_TRACING'] = 'false'
     os.environ.setdefault('DYNAMODB_ENDPOINT_URL', 'http://localhost:8001')
     os.environ.setdefault('AWS_REGION', 'us-east-1')
     os.environ.setdefault('AWS_ACCESS_KEY_ID', 'dummy')
@@ -221,7 +222,7 @@ class TestBaseAgentClass(TestBaseClientClass):
     async def _a_provide_checkpointer(self, tables: TableSpecs) -> AsyncGenerator[None, None]:
         # What the app's lifespan does at startup, per test — each test gets its own event loop, and
         # the client has to be created and closed on the one that uses it.
-        async with get_checkpointer().opened():
+        async with get_checkpointer().open_client():
             yield
 
 

@@ -6,8 +6,8 @@ from types_aiobotocore_dynamodb import DynamoDBClient
 
 from app.ai_assistant_langchain.history.schemas import MessageRow, NewMessage
 from app.core.dynamodb.base_service import DynamoDBService
-from app.core.dynamodb.client import get_dynamo_client
-from app.core.dynamodb.indexes import KeyAttr, thread_key
+from app.core.dynamodb.client import open_request_dynamo_client
+from app.core.dynamodb.indexes import build_thread_key, KeyAttr
 from app.core.dynamodb.schemas import TransactPut
 from app.settings import get_settings, Settings
 
@@ -17,7 +17,7 @@ class ConversationHistoryRepository(DynamoDBService):
 
     def __init__(
         self,
-        dynamo_db_client: Annotated[DynamoDBClient, Depends(get_dynamo_client)],
+        dynamo_db_client: Annotated[DynamoDBClient, Depends(open_request_dynamo_client)],
         settings: Annotated[Settings, Depends(get_settings)],
     ) -> None:
         super().__init__(dynamo_db_client, settings.DYNAMODB_CONVERSATIONS_TABLE)
@@ -35,6 +35,6 @@ class ConversationHistoryRepository(DynamoDBService):
         await self.transact_write(*(TransactPut(row, condition=Attr(KeyAttr.PK).not_exists()) for row in rows))
         return rows
 
-    async def list_message_by_user_id(self, user_id: str) -> list[MessageRow]:
-        rows = await self.query(key_condition=Key(KeyAttr.PK).eq(thread_key(user_id)), consistent_read=True)
+    async def list_messages_by_user_id(self, user_id: str) -> list[MessageRow]:
+        rows = await self.query(key_condition=Key(KeyAttr.PK).eq(build_thread_key(user_id)), consistent_read=True)
         return [MessageRow.model_validate(row) for row in rows]

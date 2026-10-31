@@ -54,7 +54,7 @@ class TableItem(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
 
     @classmethod
-    def key(cls, item_id: str) -> dict[str, str]:
+    def build_key(cls, item_id: str) -> dict[str, str]:
         """The primary key of one item, built from its id alone — what ``get_item``/``delete_item``
         need, and the one thing they can't get from an item they don't have yet."""
         return {'pk': f'{cls.entity}#{item_id}', 'sk': cls.meta_sk}
@@ -70,7 +70,7 @@ class TableItem(BaseModel):
         return self.meta_sk
 
     @classmethod
-    def entity_type_value(cls) -> str:
+    def build_entity_type(cls) -> str:
         """The ``entity_type`` an item of this class is written with — derived from the class alone.
 
         Nothing queries it any more: a listing filters on ``sk = #META`` now that a table holds one
@@ -81,4 +81,4 @@ class TableItem(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def entity_type(self) -> str:
-        return self.entity_type_value()
+        return self.build_entity_type()

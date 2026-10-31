@@ -35,7 +35,7 @@ BATCH_GET_LIMIT = 100
 
 # Which member of a ``TransactWriteItems`` entry each action becomes. Keyed by type rather than
 # branched on, so a fourth action (``Update``) is one line here rather than another elif.
-_TRANSACT_MEMBER: dict[type, str] = {
+_TRANSACT_MEMBERS_BY_ACTION: dict[type, str] = {
     TransactPut: 'Put',
     TransactDelete: 'Delete',
     TransactConditionCheck: 'ConditionCheck',
@@ -60,29 +60,29 @@ class DynamoDBService:
         do not — DynamoDB has no NULL type for one, so an open slot carrying ``gsi2pk: None`` is
         refused outright with ``Invalid attribute value type``.
         """
-        kwargs: dict[str, Any] = {
+        request_params: dict[str, Any] = {
             'TableName': self._table_name,
-            'Item': self._serialize(item.model_dump(exclude_none=True)),
+            'Item': self._serialize_attributes(item.model_dump(exclude_none=True)),
             'ReturnConsumedCapacity': 'TOTAL',
         }
         if condition is not None:
-            expr, names, values = self._build_condition(condition)
-            kwargs['ConditionExpression'] = expr
-            self._set_expressions(kwargs, names, values)
-        await self._client.put_item(**kwargs)
+            expression, names, values = self._build_condition(condition)
+            request_params['ConditionExpression'] = expression
+            self._set_expression_placeholders(request_params, names, values)
+        await self._client.put_item(**request_params)
 
     async def get_item(self, key: dict[str, Any], consistent_read: bool = False) -> dict[str, Any] | None:
-        """The item matching ``key`` (its primary key, e.g. ``TableItem.key(id)``), or ``None`` if it
+        """The item matching ``key`` (its primary key, e.g. ``TableItem.build_key(id)``), or ``None`` if it
         doesn't exist. Set ``consistent_read`` for a strongly-consistent read instead of the default
         eventual one."""
         response = await self._client.get_item(
             TableName=self._table_name,
-            Key=self._serialize(key),
+            Key=self._serialize_attributes(key),
             ConsistentRead=consistent_read,
             ReturnConsumedCapacity='TOTAL',
         )
         item = response.get('Item')
-        return self._deserialize(item) if item is not None else None
+        return self._deserialize_attributes(item) if item is not None else None
 
     async def batch_get(self, keys: list[dict[str, Any]], consistent_read: bool = False) -> list[dict[str, Any]]:
         """The items at ``keys``, fetched in one round trip per 100 keys.
@@ -96,14 +96,14 @@ class DynamoDBService:
             chunk = keys[start : start + BATCH_GET_LIMIT]
             request: dict[str, Any] = {
                 self._table_name: {
-                    'Keys': [self._serialize(key) for key in chunk],
+                    'Keys': [self._serialize_attributes(key) for key in chunk],
                     'ConsistentRead': consistent_read,
                 }
             }
             while request:
                 response = await self._client.batch_get_item(RequestItems=request)
-                found = response.get('Responses', {}).get(self._table_name, [])
-                items.extend(self._deserialize(raw) for raw in found)
+                found_items = response.get('Responses', {}).get(self._table_name, [])
+                items.extend(self._deserialize_attributes(raw_item) for raw_item in found_items)
                 request = response.get('UnprocessedKeys') or {}
         return items
 
@@ -122,38 +122,38 @@ class DynamoDBService:
         ``condition``'s generated placeholders (``#n0`` / ``:v0``) are merged in — keep your own
         aliases away from that pattern to avoid a clash."""
         names = dict(expression_names or {})
-        values = self._serialize(expression_values)
-        kwargs: dict[str, Any] = {
+        values = self._serialize_attributes(expression_values)
+        request_params: dict[str, Any] = {
             'TableName': self._table_name,
-            'Key': self._serialize(key),
+            'Key': self._serialize_attributes(key),
             'UpdateExpression': update_expression,
             'ReturnValues': 'ALL_NEW',
         }
         if condition is not None:
-            expr, c_names, c_values = self._build_condition(condition)
-            kwargs['ConditionExpression'] = expr
-            names.update(c_names)
-            values.update(c_values)
-        self._set_expressions(kwargs, names, values)
-        response = await self._client.update_item(**kwargs)
-        return self._deserialize(response.get('Attributes', {}))
+            expression, condition_names, condition_values = self._build_condition(condition)
+            request_params['ConditionExpression'] = expression
+            names.update(condition_names)
+            values.update(condition_values)
+        self._set_expression_placeholders(request_params, names, values)
+        response = await self._client.update_item(**request_params)
+        return self._deserialize_attributes(response.get('Attributes', {}))
 
     async def delete_item(self, key: dict[str, Any], condition: ConditionBase | None = None) -> None:
         """Delete the item at ``key`` (a no-op if it's absent). Pass ``condition`` to delete only
         when it holds."""
-        kwargs: dict[str, Any] = {'TableName': self._table_name, 'Key': self._serialize(key)}
+        request_params: dict[str, Any] = {'TableName': self._table_name, 'Key': self._serialize_attributes(key)}
         if condition is not None:
-            expr, names, values = self._build_condition(condition)
-            kwargs['ConditionExpression'] = expr
-            self._set_expressions(kwargs, names, values)
-        await self._client.delete_item(**kwargs)
+            expression, names, values = self._build_condition(condition)
+            request_params['ConditionExpression'] = expression
+            self._set_expression_placeholders(request_params, names, values)
+        await self._client.delete_item(**request_params)
 
     async def transact_write(self, *actions: TransactAction) -> None:
         """Apply several writes as one all-or-nothing ``TransactWriteItems``.
 
         A ``TransactConditionCheck`` writes nothing — it only asserts something about a row the
         transaction leaves alone (that a parent still exists, say). It still counts as one of the
-        100 actions, and its position still shows up in ``get_failed_condition_indexes``.
+        100 actions, and its position still shows up in ``find_failed_condition_positions``.
 
         The transaction is **not confined to this service's table**: an action carrying a ``table``
         of its own is sent against that one instead, which is how a repository maintains a counter
@@ -168,28 +168,28 @@ class DynamoDBService:
             names: dict[str, str] = {}
             values: dict[str, Any] = {}
             if isinstance(action, TransactPut):
-                entry['Item'] = self._serialize(action.item.model_dump())
+                entry['Item'] = self._serialize_attributes(action.item.model_dump())
             else:
-                entry['Key'] = self._serialize(action.key)
+                entry['Key'] = self._serialize_attributes(action.key)
             if isinstance(action, TransactUpdate):
                 entry['UpdateExpression'] = action.update_expression
                 names.update(action.expression_names or {})
-                values.update(self._serialize(action.expression_values))
+                values.update(self._serialize_attributes(action.expression_values))
             if action.condition is not None:
-                expr, c_names, c_values = self._build_condition(action.condition)
-                entry['ConditionExpression'] = expr
-                names.update(c_names)
-                values.update(c_values)
-            self._set_expressions(entry, names, values)
-            transact_items.append({_TRANSACT_MEMBER[type(action)]: entry})  # type: ignore[misc]
+                expression, condition_names, condition_values = self._build_condition(action.condition)
+                entry['ConditionExpression'] = expression
+                names.update(condition_names)
+                values.update(condition_values)
+            self._set_expression_placeholders(entry, names, values)
+            transact_items.append({_TRANSACT_MEMBERS_BY_ACTION[type(action)]: entry})  # type: ignore[misc]
 
         await self._client.transact_write_items(TransactItems=transact_items)
 
     @staticmethod
-    def get_failed_condition_indexes(error: ClientError) -> set[int]:
+    def find_failed_condition_positions(error: ClientError) -> set[int]:
         """Which actions of a cancelled transaction failed their condition, by position in the call."""
         reasons = error.response.get('CancellationReasons', [])
-        return {i for i, reason in enumerate(reasons) if reason.get('Code') == 'ConditionalCheckFailed'}
+        return {position for position, reason in enumerate(reasons) if reason.get('Code') == 'ConditionalCheckFailed'}
 
     async def query(
         self,
@@ -222,34 +222,36 @@ class DynamoDBService:
         names: dict[str, str] = {}
         values: dict[str, Any] = {}
 
-        key: BuiltConditionExpression = builder.build_expression(key_condition, is_key_condition=True)
-        names.update(key.attribute_name_placeholders)
-        values.update(key.attribute_value_placeholders)
-        kwargs: dict[str, Any] = {
+        built_key_condition: BuiltConditionExpression = builder.build_expression(key_condition, is_key_condition=True)
+        names.update(built_key_condition.attribute_name_placeholders)
+        values.update(built_key_condition.attribute_value_placeholders)
+        request_params: dict[str, Any] = {
             'TableName': self._table_name,
-            'KeyConditionExpression': key.condition_expression,
+            'KeyConditionExpression': built_key_condition.condition_expression,
             'ScanIndexForward': ascending,
             'ConsistentRead': consistent_read,
         }
 
         if filter_expression is not None:
-            flt: BuiltConditionExpression = builder.build_expression(filter_expression, is_key_condition=False)
-            kwargs['FilterExpression'] = flt.condition_expression
-            names.update(flt.attribute_name_placeholders)
-            values.update(flt.attribute_value_placeholders)
+            built_filter: BuiltConditionExpression = builder.build_expression(filter_expression, is_key_condition=False)
+            request_params['FilterExpression'] = built_filter.condition_expression
+            names.update(built_filter.attribute_name_placeholders)
+            values.update(built_filter.attribute_value_placeholders)
 
         if index_name is not None:
-            kwargs['IndexName'] = index_name
+            request_params['IndexName'] = index_name
 
         if limit is not None:
             # Caps what DynamoDB *reads* per page, not merely what we keep, so an existence check
             # (limit=1) costs one row instead of a full 1 MB page. The cap applies before any
-            # FilterExpression, hence a page can come back short — which is why ``_paginate`` keeps
+            # FilterExpression, hence a page can come back short — which is why ``_list_paginated_items`` keeps
             # following LastEvaluatedKey rather than treating one page as the whole answer.
-            kwargs['Limit'] = limit
+            request_params['Limit'] = limit
 
-        self._set_expressions(kwargs, names, {ph: _SERIALIZER.serialize(v) for ph, v in values.items()})
-        return await self._paginate(self._client.query, kwargs, limit)
+        self._set_expression_placeholders(
+            request_params, names, {placeholder: _SERIALIZER.serialize(value) for placeholder, value in values.items()}
+        )
+        return await self._list_paginated_items(self._client.query, request_params, limit)
 
     async def scan(
         self,
@@ -261,35 +263,37 @@ class DynamoDBService:
         completion. A full scan is expensive — prefer ``query`` on a key/index where possible.
 
         ``consistent_read`` as in ``query``: latest committed data, twice the RCU."""
-        kwargs: dict[str, Any] = {'TableName': self._table_name, 'ConsistentRead': consistent_read}
+        request_params: dict[str, Any] = {'TableName': self._table_name, 'ConsistentRead': consistent_read}
         if filter_expression is not None:
-            expr, names, values = self._build_condition(filter_expression)
-            kwargs['FilterExpression'] = expr
-            self._set_expressions(kwargs, names, values)
+            expression, names, values = self._build_condition(filter_expression)
+            request_params['FilterExpression'] = expression
+            self._set_expression_placeholders(request_params, names, values)
 
-        return await self._paginate(self._client.scan, kwargs, limit)
+        return await self._list_paginated_items(self._client.scan, request_params, limit)
 
-    async def _paginate(self, operation: Any, kwargs: dict[str, Any], limit: int | None) -> list[dict[str, Any]]:
+    async def _list_paginated_items(
+        self, operation: Any, request_params: dict[str, Any], limit: int | None
+    ) -> list[dict[str, Any]]:
         """Follow ``LastEvaluatedKey`` until the table is exhausted (or ``limit`` items collected),
         deserialising each page. ``operation`` is the client's ``query`` or ``scan``."""
         items: list[dict[str, Any]] = []
         while True:
-            response = await operation(**kwargs)
-            items.extend(self._deserialize(raw) for raw in response.get('Items', []))
+            response = await operation(**request_params)
+            items.extend(self._deserialize_attributes(raw_item) for raw_item in response.get('Items', []))
             last_key = response.get('LastEvaluatedKey')
             if last_key is None or (limit is not None and len(items) >= limit):
                 break
 
-            kwargs['ExclusiveStartKey'] = last_key
+            request_params['ExclusiveStartKey'] = last_key
         return items[:limit] if limit is not None else items
 
     @staticmethod
-    def _serialize(item: dict[str, Any]) -> dict[str, Any]:
-        return {key: _SERIALIZER.serialize(value) for key, value in item.items()}
+    def _serialize_attributes(attributes: dict[str, Any]) -> dict[str, Any]:
+        return {key: _SERIALIZER.serialize(value) for key, value in attributes.items()}
 
     @staticmethod
-    def _deserialize(item: dict[str, Any]) -> dict:
-        return {key: _DESERIALIZER.deserialize(value) for key, value in item.items()}
+    def _deserialize_attributes(attributes: dict[str, Any]) -> dict:
+        return {key: _DESERIALIZER.deserialize(value) for key, value in attributes.items()}
 
     @staticmethod
     def _build_condition(
@@ -297,17 +301,22 @@ class DynamoDBService:
     ) -> tuple[str, dict[str, str], dict[str, Any]]:
         """Render a ``Key``/``Attr`` condition into its expression string, name placeholders and
         serialised value placeholders."""
-        built: BuiltConditionExpression = ConditionExpressionBuilder().build_expression(
+        built_condition: BuiltConditionExpression = ConditionExpressionBuilder().build_expression(
             condition, is_key_condition=is_key
         )
-        values = {ph: _SERIALIZER.serialize(v) for ph, v in built.attribute_value_placeholders.items()}
-        return built.condition_expression, built.attribute_name_placeholders, values
+        values = {
+            placeholder: _SERIALIZER.serialize(value)
+            for placeholder, value in built_condition.attribute_value_placeholders.items()
+        }
+        return built_condition.condition_expression, built_condition.attribute_name_placeholders, values
 
     @staticmethod
-    def _set_expressions(kwargs: dict[str, Any], names: dict[str, str], values: dict[str, Any]) -> None:
+    def _set_expression_placeholders(
+        request_params: dict[str, Any], names: dict[str, str], values: dict[str, Any]
+    ) -> None:
         """Attach name/value placeholder maps to a request — but only when non-empty. DynamoDB rejects
         an empty ``ExpressionAttributeValues`` (e.g. a value-less ``Attr(...).not_exists()`` condition)."""
         if names:
-            kwargs['ExpressionAttributeNames'] = names
+            request_params['ExpressionAttributeNames'] = names
         if values:
-            kwargs['ExpressionAttributeValues'] = values
+            request_params['ExpressionAttributeValues'] = values

@@ -9,11 +9,11 @@ from app.core.exceptions import AlreadyExistError, NotFoundError
 
 
 class ProgramService:
-    def __init__(self, repo: Annotated[ProgramsRepository, Depends(ProgramsRepository)]) -> None:
-        self._repo = repo
+    def __init__(self, repository: Annotated[ProgramsRepository, Depends(ProgramsRepository)]) -> None:
+        self._repository = repository
 
     async def create_program(self, creation: ProgramCreate) -> ProgramItem:
-        outcome, program = await self._repo.create_program(creation)
+        outcome, program = await self._repository.create_program(creation)
         # The enum says only 'the parent was missing'; naming *which* parent is the service's job,
         # and the reason the message did not move into the enum with the outcome.
         if outcome is CreateOutcome.PARENT_NOT_FOUND:
@@ -26,11 +26,11 @@ class ProgramService:
         return program
 
     async def list_programs(self) -> list[ProgramItem]:
-        return await self._repo.list_programs()
+        return await self._repository.list_programs()
 
     async def delete_program(self, program_id: str) -> None:
         """Delete a programme that nothing depends on."""
-        outcome = await self._repo.delete_program(program_id)
+        outcome = await self._repository.delete_program(program_id)
         if outcome is DeleteOutcome.HAS_DEPENDANTS:
             raise AlreadyExistError(f'Program with id = {program_id} still has groups')
         if outcome is DeleteOutcome.NOT_FOUND:

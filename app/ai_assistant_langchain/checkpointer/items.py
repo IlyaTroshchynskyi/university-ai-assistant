@@ -9,14 +9,14 @@ from typing import ClassVar
 
 from pydantic import BaseModel, computed_field
 
-from app.core.dynamodb.indexes import thread_key
+from app.core.dynamodb.indexes import build_thread_key
 
 EMPTY_TYPE = 'empty'
 
 
-def row_key(thread_id: str, sort_key: str) -> dict[str, str]:
+def build_row_key(thread_id: str, sort_key: str) -> dict[str, str]:
     """The primary key of a single row — what ``get_item``/``batch_get`` need."""
-    return {'pk': thread_key(thread_id), 'sk': sort_key}
+    return {'pk': build_thread_key(thread_id), 'sk': sort_key}
 
 
 class Row(BaseModel):
@@ -29,7 +29,7 @@ class Row(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def pk(self) -> str:
-        return thread_key(self.thread_id)
+        return build_thread_key(self.thread_id)
 
 
 class CheckpointRow(Row):
@@ -48,17 +48,17 @@ class CheckpointRow(Row):
     metadata_value: bytes
 
     @classmethod
-    def sort_key(cls, checkpoint_ns: str, checkpoint_id: str) -> str:
+    def build_sort_key(cls, checkpoint_ns: str, checkpoint_id: str) -> str:
         return f'{cls.prefix}#{checkpoint_ns}#{checkpoint_id}'
 
     @classmethod
-    def scan_prefix(cls, checkpoint_ns: str | None) -> str:
+    def build_scan_prefix(cls, checkpoint_ns: str | None) -> str:
         return f'{cls.prefix}#' if checkpoint_ns is None else f'{cls.prefix}#{checkpoint_ns}#'
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def sk(self) -> str:
-        return self.sort_key(self.checkpoint_ns, self.checkpoint_id)
+        return self.build_sort_key(self.checkpoint_ns, self.checkpoint_id)
 
 
 class BlobRow(Row):
@@ -72,13 +72,13 @@ class BlobRow(Row):
     value: bytes
 
     @classmethod
-    def sort_key(cls, checkpoint_ns: str, channel: str, version: str | int | float) -> str:
+    def build_sort_key(cls, checkpoint_ns: str, channel: str, version: str | int | float) -> str:
         return f'{cls.prefix}#{checkpoint_ns}#{channel}#{version}'
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def sk(self) -> str:
-        return self.sort_key(self.checkpoint_ns, self.channel, self.version)
+        return self.build_sort_key(self.checkpoint_ns, self.channel, self.version)
 
 
 class WriteRow(Row):
@@ -95,15 +95,15 @@ class WriteRow(Row):
     value: bytes
 
     @classmethod
-    def sort_key(cls, checkpoint_ns: str, checkpoint_id: str, task_id: str, idx: int) -> str:
-        return f'{cls.prefix}#{checkpoint_ns}#{checkpoint_id}#{task_id}#{idx}'
+    def build_sort_key(cls, checkpoint_ns: str, checkpoint_id: str, task_id: str, write_index: int) -> str:
+        return f'{cls.prefix}#{checkpoint_ns}#{checkpoint_id}#{task_id}#{write_index}'
 
     @classmethod
-    def scan_prefix(cls, checkpoint_ns: str, checkpoint_id: str) -> str:
+    def build_scan_prefix(cls, checkpoint_ns: str, checkpoint_id: str) -> str:
         """Every write belonging to one checkpoint."""
         return f'{cls.prefix}#{checkpoint_ns}#{checkpoint_id}#'
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def sk(self) -> str:
-        return self.sort_key(self.checkpoint_ns, self.checkpoint_id, self.task_id, self.idx)
+        return self.build_sort_key(self.checkpoint_ns, self.checkpoint_id, self.task_id, self.idx)

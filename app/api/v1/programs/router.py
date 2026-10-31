@@ -15,7 +15,7 @@ async def create_program(
 
 
 @router.get('/programs')
-async def get_all_programs(
+async def list_programs(
     service: ProgramService = Depends(),
 ) -> list[ProgramItem]:
     return await service.list_programs()

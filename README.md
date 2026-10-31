@@ -399,7 +399,7 @@ approval stores its question alone and its answer when the decision comes in, an
 different kind of write.
 
 ```
-pk = THREAD#{user_id}      thread_key() in app/core/dynamodb/indexes.py — the checkpointer's too
+pk = THREAD#{user_id}      build_thread_key() in app/core/dynamodb/indexes.py — the checkpointer's too
 sk = {created_at}          UTC, fixed width, so the sort key is the order the lines were said in
 ```
 

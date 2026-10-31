@@ -11,7 +11,7 @@ exception is ``academic_groups``, whose GSI1 is genuinely overloaded (``PROGRAM#
 ``normalize_name_key`` lives here too, next to the ``GSI_NAME_SK`` it produces: a sort key only
 matches a query when both sides derive it the same way, so the writer (``db/load_dynamodb.py``) and
 the reader (``ProfessorsRepository.find_professors_by_name``) have to share one implementation. So
-does ``thread_key``, for the same reason across two tables rather than two callers."""
+does ``build_thread_key``, for the same reason across two tables rather than two callers."""
 
 from enum import StrEnum
 
@@ -57,7 +57,7 @@ class KeyAttr(StrEnum):
     GSI_NAME_SK = 'gsi_name_sk'
 
 
-def thread_key(thread_id: str) -> str:
+def build_thread_key(thread_id: str) -> str:
     """The partition every row of one conversation lives in — its checkpoints in
     ``agent_checkpoints`` and its messages in ``conversation_history``.
 
@@ -93,10 +93,10 @@ def normalize_name_key(full_name: str) -> str:
     building the ``begins_with`` prefix — because a query normalized differently from the stored
     value simply matches nothing. Returns '' for a blank or title-only name, which callers treat as
     'nothing to search for' rather than passing an empty prefix to DynamoDB (it rejects one)."""
-    parts = full_name.strip().lower().split()
-    while parts and parts[0].rstrip('.') in _HONORIFICS:
-        parts = parts[1:]
-    return ' '.join(parts)
+    name_parts = full_name.strip().lower().split()
+    while name_parts and name_parts[0].rstrip('.') in _HONORIFICS:
+        name_parts = name_parts[1:]
+    return ' '.join(name_parts)
 
 
 def build_issue_votes_key(votes: int, issue_id: int | str) -> str:

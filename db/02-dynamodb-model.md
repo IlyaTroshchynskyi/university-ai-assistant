@@ -151,7 +151,7 @@ It is a read, though: a programme created immediately after the check passes is 
 
 'Every faculty' (`GET /faculties`, `FacultyRepository.list_faculties`) is served by a **Scan of the whole `university` table with a filter on `entity_type = faculty`** — the one place in the model that breaks the 'an index, not a Scan' rule stated for GSI_NAME below. Recorded here rather than left implicit, because the code and this document have to agree on it.
 
-What that costs: a DynamoDB `FilterExpression` is applied **after** the read, so every call reads (and is billed for) the entire table — 89 items from the seed, unbounded in production — to return ~6 faculties. `DynamoDBService.scan` is called without a `limit`, so `_paginate` follows `LastEvaluatedKey` to the end. Faculty also has no sort key of any kind, so the listing comes back in **undefined order**.
+What that costs: a DynamoDB `FilterExpression` is applied **after** the read, so every call reads (and is billed for) the entire table — 89 items from the seed, unbounded in production — to return ~6 faculties. `DynamoDBService.scan` is called without a `limit`, so `_list_paginated_items` follows `LastEvaluatedKey` to the end. Faculty also has no sort key of any kind, so the listing comes back in **undefined order**.
 
 Why it stands for now: faculties are a tiny, near-static reference list, and the endpoint is administrative rather than on a student-facing path. The `entity_type` filter is what keeps every other entity in the shared table out of the result.
 

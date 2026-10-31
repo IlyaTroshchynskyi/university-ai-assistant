@@ -26,7 +26,7 @@ def get_aioboto_session() -> AioSession:
 async def open_dynamo_client(session: AioSession, settings: Settings) -> AsyncGenerator[DynamoDBClient, None]:
     """Open one low-level DynamoDB client and close it on exit. The reusable core (no ``Depends``,
     so it works outside a request): ``async with open_dynamo_client(session, settings) as client``.
-    ``get_dynamo_client`` wraps it for FastAPI DI."""
+    ``open_request_dynamo_client`` wraps it for FastAPI DI."""
     async with session.create_client(
         'dynamodb',
         endpoint_url=settings.DYNAMODB_ENDPOINT_URL,
@@ -37,7 +37,7 @@ async def open_dynamo_client(session: AioSession, settings: Settings) -> AsyncGe
         yield client
 
 
-async def get_dynamo_client(
+async def open_request_dynamo_client(
     session: AioSession = Depends(get_aioboto_session),
     settings: Settings = Depends(get_settings),
 ) -> AsyncGenerator[DynamoDBClient, None]:

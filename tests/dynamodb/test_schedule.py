@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from types_aiobotocore_dynamodb import DynamoDBClient
 
-from app.ai_assistant_langchain.agents.qa.tools import get_schedule, NO_TIMETABLE_FILTER
+from app.ai_assistant_langchain.agents.qa.tools import get_schedule, NO_TIMETABLE_FILTER_NOTICE
 from app.api.v1.rooms.enums import Weekday
 from app.api.v1.schedule.schedule_service import open_schedule_service
 from app.api.v1.schedule.schemas import ScheduleEntry
@@ -265,19 +265,19 @@ class TestGetScheduleTool(TestBaseScheduleClass):
         with patch(PATH_TO_SCHEDULE_SERVICE) as opened:
             found = await get_schedule.ainvoke({})
 
-        assert found == NO_TIMETABLE_FILTER
+        assert found == NO_TIMETABLE_FILTER_NOTICE
         opened.assert_not_called()
 
     async def test_empty_string_is_a_filter_that_was_not_given(self) -> None:
         with patch(PATH_TO_SCHEDULE_SERVICE) as opened:
             found = await get_schedule.ainvoke({'group': '', 'course': ''})
 
-        assert found == NO_TIMETABLE_FILTER
+        assert found == NO_TIMETABLE_FILTER_NOTICE
         opened.assert_not_called()
 
     async def test_whitespace_is_a_filter_that_was_not_given(self) -> None:
         with patch(PATH_TO_SCHEDULE_SERVICE) as opened:
             found = await get_schedule.ainvoke({'professor': '  ', 'course': ' '})
 
-        assert found == NO_TIMETABLE_FILTER
+        assert found == NO_TIMETABLE_FILTER_NOTICE
         opened.assert_not_called()

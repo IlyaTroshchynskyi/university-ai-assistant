@@ -6,5 +6,5 @@ from pydantic import BaseModel
 
 # Todo add later
 class Pagination(BaseModel):
-    cur_page: Annotated[str, Query()]
+    current_page: Annotated[str, Query()]
     next_page: Annotated[str, Query()]

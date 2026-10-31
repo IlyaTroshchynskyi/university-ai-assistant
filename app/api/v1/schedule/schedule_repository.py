@@ -14,9 +14,9 @@ class ScheduleRepository(DynamoDBService):
         super().__init__(client, settings.DYNAMODB_GROUPS_TABLE)
 
     async def find_groups_by_name(self, name: str) -> dict[str, str]:
-        name = normalize_name(name)
+        normalized_name = normalize_name(name)
         rows = await self.scan(filter_expression=Attr(KeyAttr.SK).eq(GroupItem.meta_sk))
-        return {str(row['id']): str(row['name']) for row in rows if normalize_name(row['name']) == name}
+        return {str(row['id']): str(row['name']) for row in rows if normalize_name(row['name']) == normalized_name}
 
     async def list_group_classes(self, group_id: str) -> list[Schedule]:
         rows = await self.query(
