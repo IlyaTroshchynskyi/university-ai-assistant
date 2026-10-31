@@ -40,7 +40,7 @@ class FacultyNameItem(BaseModel):
     faculty_id: str
 
     @classmethod
-    def key(cls, name: str) -> dict[str, str]:
+    def build_key(cls, name: str) -> dict[str, str]:
         """The primary key reserving ``name`` — what deleting the reservation needs, built from the
         name alone."""
         return {'pk': f'{cls.entity}#{normalize_name(name)}', 'sk': cls.unique_sk}

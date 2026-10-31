@@ -9,18 +9,18 @@ from langgraph.runtime import Runtime
 
 from app.ai_assistant_langchain.agents.booking.prompts import build_booking_system_prompt
 from app.ai_assistant_langchain.agents.booking.tools import book_appointment, BOOKING_TOOLS, cancel_appointment
-from app.ai_assistant_langchain.graph.models import get_model_factory
-from app.ai_assistant_langchain.graph.schemas import CustomContext
+from app.ai_assistant_langchain.graph.models import get_chat_model
+from app.ai_assistant_langchain.graph.schemas import AgentRunContext
 
 
 @lru_cache
-def create_booking_agent() -> CompiledStateGraph:
+def build_booking_agent() -> CompiledStateGraph:
     return create_agent(
-        model=get_model_factory(),
+        model=get_chat_model(),
         tools=BOOKING_TOOLS,
-        context_schema=CustomContext,
+        context_schema=AgentRunContext,
         middleware=[
-            _booking_prompt,
+            _build_booking_prompt,
             HumanInTheLoopMiddleware(
                 interrupt_on={
                     book_appointment.name: {
@@ -39,7 +39,7 @@ def create_booking_agent() -> CompiledStateGraph:
 
 
 @dynamic_prompt
-def _booking_prompt(request: ModelRequest) -> str:
+def _build_booking_prompt(request: ModelRequest) -> str:
     """The booking prompt, rebuilt for every model call.
 
     Not passed as ``system_prompt=``: this factory is ``lru_cache``d, so the prompt string would be
@@ -52,7 +52,7 @@ def _booking_prompt(request: ModelRequest) -> str:
     return build_booking_system_prompt()
 
 
-def _describe_booking(tool_call: ToolCall, state: AgentState, runtime: Runtime[CustomContext]) -> str:
+def _describe_booking(tool_call: ToolCall, state: AgentState, runtime: Runtime[AgentRunContext]) -> str:
     """What the reviewer is being asked to approve, as a sentence rather than a log line.
 
     Without a ``description`` the middleware falls back to ``Tool: book_appointment`` followed by a
@@ -66,7 +66,7 @@ def _describe_booking(tool_call: ToolCall, state: AgentState, runtime: Runtime[C
     )
 
 
-def _describe_cancellation(tool_call: ToolCall, state: AgentState, runtime: Runtime[CustomContext]) -> str:
+def _describe_cancellation(tool_call: ToolCall, state: AgentState, runtime: Runtime[AgentRunContext]) -> str:
     """The cancellation half of ``_describe_booking``. No topic — cancelling does not take one."""
     args = tool_call['args']
     return f'Cancel the consultation on {args["date"]} at {args["start_time"]} booked under {args["applicant_email"]}.'

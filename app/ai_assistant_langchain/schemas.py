@@ -33,7 +33,7 @@ class Decision(BaseModel):
     )
 
     @model_validator(mode='after')
-    def _edit_carries_args(self) -> Self:
+    def _check_edit_carries_args(self) -> Self:
         if self.type == 'edit' and not self.args:
             raise ValueError("an 'edit' decision must carry the replacement `args`")
         return self
@@ -61,7 +61,7 @@ class UserQuery(BaseModel):
     )
 
     @model_validator(mode='after')
-    def _exactly_one(self) -> Self:
+    def _check_exactly_one_input(self) -> Self:
         has_message = self.query is not None or bool(self.files)
         has_decisions = self.decisions is not None
         if has_message == has_decisions:

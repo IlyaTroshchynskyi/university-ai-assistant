@@ -25,7 +25,7 @@ from app.ai_assistant_langchain.applicant_documents.document_rules import check_
 from app.ai_assistant_langchain.applicant_documents.enums import DocumentField
 from app.ai_assistant_langchain.applicant_documents.extractors import extract_document_fields, get_extractor
 from app.ai_assistant_langchain.applicant_documents.schemas import DocumentFields
-from app.ai_assistant_langchain.graph.schemas import CustomContext
+from app.ai_assistant_langchain.graph.schemas import AgentRunContext
 from app.api.v1.issues.issues_repository import open_issues_repository
 from app.api.v1.places.places_repository import open_places_repository
 from app.api.v1.professors.professors_repository import open_professors_repository
@@ -33,7 +33,7 @@ from app.api.v1.rooms.enums import IssueCategory, Weekday
 from app.api.v1.rooms.schemas import IssueCreate
 from app.api.v1.schedule.schedule_service import open_schedule_service
 from app.api.v1.scholarships.enums import Faculty
-from app.api.v1.scholarships.scholarship_rules import evaluate_scholarships
+from app.api.v1.scholarships.scholarship_rules import check_scholarship_eligibility
 from app.core.exceptions import NotFoundError
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ VISIBLE_IDENTIFIER_CHARACTERS = 2
 
 NO_REPORTED_ISSUES_NOTICE = 'No student issues have been reported.'
 
-NO_TIMETABLE_FILTER = (
+NO_TIMETABLE_FILTER_NOTICE = (
     'The timetable is looked up by a group, a professor, a course or a weekday, and none of them was given.'
 )
 
@@ -72,8 +72,8 @@ async def find_person(name: str) -> list[dict] | str:
     Returns each match with their title, faculty, office/room, email and office hours, or a sentence
     saying that nobody by that name was found.
     """
-    async with open_professors_repository() as repo:
-        professors = await repo.find_professors_by_name(name)
+    async with open_professors_repository() as repository:
+        professors = await repository.find_professors_by_name(name)
 
     logger.info('FindPerson %r -> %s', name, f'{len(professors)} match(es)' if professors else 'none')
     if not professors:
@@ -89,8 +89,8 @@ async def find_place(name: str) -> dict | str:
     Returns its building, floor and opening hours, or a sentence saying that no place by that name
     was found.
     """
-    async with open_places_repository() as repo:
-        place = await repo.find_place_by_name(name)
+    async with open_places_repository() as repository:
+        place = await repository.find_place_by_name(name)
 
     logger.info('FindPlace %r -> %s', name, place.name if place else 'none')
     if place is None:
@@ -113,22 +113,22 @@ async def get_schedule(
     order, or a sentence saying what was not found.
     """
     filters = {'group': group, 'professor': professor, 'course': course, 'weekday': weekday}
-    given = {name: value for name, value in filters.items() if value}
-    logger.info('GetSchedule %s', given or '(no filter)')
+    given_filters = {name: value for name, value in filters.items() if value}
+    logger.info('GetSchedule %s', given_filters or '(no filter)')
 
-    if not given:
-        return NO_TIMETABLE_FILTER
+    if not given_filters:
+        return NO_TIMETABLE_FILTER_NOTICE
 
     try:
         async with open_schedule_service() as service:
             entries = await service.find_schedule(group=group, professor=professor, course=course, weekday=weekday)
-    except NotFoundError as unknown:
-        return f'{unknown} This does not mean there are no classes.'
+    except NotFoundError as not_found_error:
+        return f'{not_found_error} This does not mean there are no classes.'
 
     if not entries:
-        described = ', '.join(f'{name}={str(value)!r}' for name, value in given.items())
-        course_matching = ' A course is matched as part of its stored name.' if course else ''
-        return f'No classes found for {described}.{course_matching}'
+        filter_description = ', '.join(f'{name}={str(value)!r}' for name, value in given_filters.items())
+        course_matching_hint = ' A course is matched as part of its stored name.' if course else ''
+        return f'No classes found for {filter_description}.{course_matching_hint}'
 
     return [entry.model_dump() for entry in entries]
 
@@ -150,7 +150,7 @@ async def check_scholarship(
     `awarded_reason` says why that one or what is missing to tell, and `tuition_after_award` is the
     annual tuition left to pay with it.
     """
-    check = evaluate_scholarships(
+    scholarship_check = check_scholarship_eligibility(
         gpa=gpa,
         family_income=family_income,
         entrance_exam_score=entrance_exam_score,
@@ -160,14 +160,14 @@ async def check_scholarship(
     )
     logger.info(
         'CheckScholarship -> qualified: %s; awarded: %s',
-        ', '.join(match.name for match in check.qualified) or 'none',
-        check.awarded or 'none',
+        ', '.join(match.name for match in scholarship_check.qualified) or 'none',
+        scholarship_check.awarded or 'none',
     )
-    return check.model_dump()
+    return scholarship_check.model_dump()
 
 
 @tool
-async def validate_documents(runtime: ToolRuntime[CustomContext, AssistantAgentState]) -> Command | str:
+async def validate_documents(runtime: ToolRuntime[AgentRunContext, AssistantAgentState]) -> Command | str:
     """Read the files attached to the applicant's message and check their admission documents against the rules."""
     attached_files = runtime.context.documents
     try:
@@ -248,36 +248,36 @@ async def compare_programs(programs: list[str]) -> str:
     # Case-insensitively unique, in the order given. Two names for one programme is not a comparison:
     # each duplicate would search the same thing again and take a second block in a prompt whose
     # every rule is about keeping the programmes apart.
-    unique: dict[str, str] = {}
+    unique_programs: dict[str, str] = {}
     for program in programs:
-        unique.setdefault(program.strip().casefold(), program.strip())
+        unique_programs.setdefault(program.strip().casefold(), program.strip())
 
-    named = [program for program in unique.values() if program]
-    logger.info('CompareProgrammes %s', ' vs '.join(repr(program) for program in named) or '(nothing named)')
+    named_programs = [program for program in unique_programs.values() if program]
+    logger.info('CompareProgrammes %s', ' vs '.join(repr(program) for program in named_programs) or '(nothing named)')
 
     # Answered here rather than by a ``min_length`` on the schema: this tool is ``return_direct``, so
     # a rejected argument list would reach the applicant as pydantic's error text.
-    if len(named) < 2:
-        if named:
-            return f'{named[0]} is one programme, not two. Which other one should I compare it with?'
+    if len(named_programs) < 2:
+        if named_programs:
+            return f'{named_programs[0]} is one programme, not two. Which other one should I compare it with?'
         return 'Which programmes would you like me to compare?'
 
     # Every extra programme is another embedding, another search and another block in the merge
     # prompt, and a side-by-side answer stops being readable long before the cost stops growing.
-    compared, dropped = named[:MAX_PROGRAMS], named[MAX_PROGRAMS:]
+    compared_programs, dropped_programs = named_programs[:MAX_PROGRAMS], named_programs[MAX_PROGRAMS:]
 
     graph = get_compare_programs_graph()
-    state = await graph.ainvoke({'programs': compared})
+    state = await graph.ainvoke({'programs': compared_programs})
     comparison: str = state['comparison']
 
-    if not dropped:
+    if not dropped_programs:
         return comparison
 
     return (
-        f'{comparison}\n\nI compared the first {MAX_PROGRAMS} — {", ".join(dropped)} '
-        f'{"is" if len(dropped) == 1 else "are"} not in here. Ask again for '
-        f'{"it" if len(dropped) == 1 else "them"} and I will cover '
-        f'{"it" if len(dropped) == 1 else "them"}.'
+        f'{comparison}\n\nI compared the first {MAX_PROGRAMS} — {", ".join(dropped_programs)} '
+        f'{"is" if len(dropped_programs) == 1 else "are"} not in here. Ask again for '
+        f'{"it" if len(dropped_programs) == 1 else "them"} and I will cover '
+        f'{"it" if len(dropped_programs) == 1 else "them"}.'
     )
 
 
@@ -294,7 +294,9 @@ ASSISTANT_TOOLS = [
 ]
 
 
-DIRECT_ANSWER_TOOLS = frozenset(item.name for item in ASSISTANT_TOOLS if item.return_direct)
+DIRECT_ANSWER_TOOLS = frozenset(
+    assistant_tool.name for assistant_tool in ASSISTANT_TOOLS if assistant_tool.return_direct
+)
 
 
 def _mask_document_identifiers(fields: DocumentFields) -> DocumentFields:

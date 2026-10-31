@@ -408,7 +408,7 @@ class TestChatWithDocuments(TestBaseCheckpointerClass):
     async def test_busy_thread_refuses_the_message_before_reading_its_files(self) -> None:
         user_id = str(uuid4())
 
-        async with runs.claimed(user_id):
+        async with runs.claim_thread(user_id):
             response = await self.not_auth_client.post(ENDPOINT, data={'user_id': user_id}, files=UNSUPPORTED_FILES)
 
         assert response.status_code == 409

@@ -16,7 +16,7 @@ from app.ai_assistant_langchain import runs
 from app.ai_assistant_langchain.agent_service import AgentService
 from app.ai_assistant_langchain.chat_service import ChatService, MODEL_NODE, TOOL_FAILURE_MESSAGE
 from app.ai_assistant_langchain.graph.enums import GraphNode
-from app.ai_assistant_langchain.graph.schemas import CustomContext
+from app.ai_assistant_langchain.graph.schemas import AgentRunContext
 from app.ai_assistant_langchain.history.repository import ConversationHistoryRepository
 from app.ai_assistant_langchain.history.schemas import Role
 from app.ai_assistant_langchain.history.service import ConversationHistoryService
@@ -42,7 +42,7 @@ SSE_HEADERS = {'Accept': 'text/event-stream'}
 
 # `merge` gets its model and its knowledge service from its own module, which neither stub helper in
 # `tests/agent_stubs.py` reaches.
-PATH_TO_COMPARE_MODEL_FACTORY = 'app.ai_assistant_langchain.agents.qa.compare_programs.nodes.get_model_factory'
+PATH_TO_COMPARE_MODEL_FACTORY = 'app.ai_assistant_langchain.agents.qa.compare_programs.nodes.get_chat_model'
 PATH_TO_COMPARE_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.agents.qa.compare_programs.nodes.get_knowledge_service'
 
 # §4.4's node name, patched by the test that the whole `ToolMessage` still answers when the tool's
@@ -91,7 +91,7 @@ class TestTheStubStreams(TestBaseCheckpointerClass):
             async for part in self.agent.astream(
                 {'messages': [HumanMessage(content=query)]},
                 config={'configurable': {'thread_id': user_id}},
-                context=CustomContext(user_id=user_id),
+                context=AgentRunContext(user_id=user_id),
                 stream_mode=['messages', 'values'],
                 subgraphs=True,
                 version='v2',
@@ -264,25 +264,25 @@ class TestRunRegistry:
 
     async def test_a_second_turn_on_the_same_thread_is_refused(self) -> None:
         user_id = str(uuid4())
-        runs.register(user_id, asyncio.create_task(asyncio.sleep(0.2)))
+        runs.register_streaming_turn(user_id, asyncio.create_task(asyncio.sleep(0.2)))
 
         with pytest.raises(ConflictingStatusError):
-            runs.assert_free(user_id)
+            runs.refuse_busy_thread(user_id)
 
     async def test_another_thread_is_free(self) -> None:
-        runs.register(str(uuid4()), asyncio.create_task(asyncio.sleep(0.2)))
+        runs.register_streaming_turn(str(uuid4()), asyncio.create_task(asyncio.sleep(0.2)))
 
-        runs.assert_free(str(uuid4()))
+        runs.refuse_busy_thread(str(uuid4()))
 
     async def test_the_entry_clears_when_the_run_finishes(self) -> None:
         user_id = str(uuid4())
         task = asyncio.create_task(asyncio.sleep(0))
-        runs.register(user_id, task)
+        runs.register_streaming_turn(user_id, task)
 
         await task
 
-        assert not runs._RUNS
-        runs.assert_free(user_id)
+        assert not runs._STREAMING_TURNS_BY_USER_ID
+        runs.refuse_busy_thread(user_id)
 
     async def test_the_drain_waits_for_a_pending_run(self) -> None:
         finished = False
@@ -292,53 +292,53 @@ class TestRunRegistry:
             await asyncio.sleep(0.2)
             finished = True
 
-        runs.register(str(uuid4()), asyncio.create_task(_slow_turn()))
+        runs.register_streaming_turn(str(uuid4()), asyncio.create_task(_slow_turn()))
 
         await runs.wait_for_streaming_turns(timeout=5.0)
 
         assert finished is True, 'the drain returned before the run had written anything'
-        assert not runs._RUNS
+        assert not runs._STREAMING_TURNS_BY_USER_ID
 
     async def test_a_claimed_thread_is_busy_until_the_turn_ends(self) -> None:
         user_id = str(uuid4())
 
-        async with runs.claimed(user_id):
+        async with runs.claim_thread(user_id):
             with pytest.raises(ConflictingStatusError):
-                runs.assert_free(user_id)
+                runs.refuse_busy_thread(user_id)
 
-        runs.assert_free(user_id)
+        runs.refuse_busy_thread(user_id)
 
     async def test_a_claim_is_released_even_when_the_turn_raises(self) -> None:
         user_id = str(uuid4())
 
         try:
-            async with runs.claimed(user_id):
+            async with runs.claim_thread(user_id):
                 raise ConflictingStatusError('the thread is paused')
         except ConflictingStatusError:
             pass
 
-        runs.assert_free(user_id)
+        runs.refuse_busy_thread(user_id)
 
     async def test_a_finished_run_does_not_release_a_later_turn(self) -> None:
         user_id = str(uuid4())
         abandoned = asyncio.create_task(asyncio.sleep(0))
-        runs.register(user_id, abandoned)
+        runs.register_streaming_turn(user_id, abandoned)
         later = asyncio.create_task(asyncio.sleep(0.2))
-        runs.register(user_id, later)
+        runs.register_streaming_turn(user_id, later)
 
         await abandoned
 
         with pytest.raises(ConflictingStatusError):
-            runs.assert_free(user_id)
+            runs.refuse_busy_thread(user_id)
         later.cancel()
 
     async def test_the_drain_gives_up_after_its_timeout(self) -> None:
         task = asyncio.create_task(asyncio.sleep(30))
-        runs.register(str(uuid4()), task)
+        runs.register_streaming_turn(str(uuid4()), task)
 
         await runs.wait_for_streaming_turns(timeout=0.1)
 
-        assert len(runs._RUNS) == 1, 'a run past the timeout is left alone, not cancelled'
+        assert len(runs._STREAMING_TURNS_BY_USER_ID) == 1, 'a run past the timeout is left alone, not cancelled'
         task.cancel()
 
 
@@ -391,7 +391,7 @@ class TestStreamingTurn(TestBaseCheckpointerClass):
 
         events = await read_events(self.not_auth_client, {'query': 'How long?', 'user_id': user_id})
 
-        stored = await self.repository.list_message_by_user_id(user_id)
+        stored = await self.repository.list_messages_by_user_id(user_id)
         assert [(message.role, message.content) for message in stored] == [
             (Role.USER, 'How long?'),
             (Role.ASSISTANT, ChatSchemaOut.model_validate_json(events[-1].data).message),
@@ -584,7 +584,7 @@ class TestPausesAndFailures(TestBaseCheckpointerClass):
         )
 
         assert ChatSchemaOut.model_validate(response.json()).message == TOOL_FAILURE_MESSAGE
-        assert await self.repository.list_message_by_user_id(user_id) == []
+        assert await self.repository.list_messages_by_user_id(user_id) == []
 
     async def test_a_tool_failure_replaces_the_answer_and_stores_nothing(self) -> None:
         user_id = str(uuid4())
@@ -596,7 +596,7 @@ class TestPausesAndFailures(TestBaseCheckpointerClass):
 
         assert [event.name for event in events] == ['done'], 'the failed tool streamed its error to the applicant'
         assert ChatSchemaOut.model_validate_json(events[-1].data).message == TOOL_FAILURE_MESSAGE
-        assert await self.repository.list_message_by_user_id(user_id) == []
+        assert await self.repository.list_messages_by_user_id(user_id) == []
 
 
 class TestDetachedRuns(TestBaseCheckpointerClass):
@@ -619,7 +619,7 @@ class TestDetachedRuns(TestBaseCheckpointerClass):
         await service.start_streaming_turn(UserQuery(user_id=user_id, query='How long?'))
         await runs.wait_for_streaming_turns(timeout=10.0)
 
-        stored = await self.repository.list_message_by_user_id(str(user_id))
+        stored = await self.repository.list_messages_by_user_id(str(user_id))
         assert [(message.role, message.content) for message in stored] == [
             (Role.USER, 'How long?'),
             (Role.ASSISTANT, reply),
@@ -632,12 +632,12 @@ class TestDetachedRuns(TestBaseCheckpointerClass):
         await read_events(self.not_auth_client, {'query': 'How long?', 'user_id': user_id})
         await runs.wait_for_streaming_turns(timeout=10.0)
 
-        assert not runs._RUNS
+        assert not runs._STREAMING_TURNS_BY_USER_ID
 
     async def test_a_second_turn_while_one_is_in_flight_is_refused(self) -> None:
         user_id = str(uuid4())
         in_flight = asyncio.create_task(asyncio.sleep(2))
-        runs.register(user_id, in_flight)
+        runs.register_streaming_turn(user_id, in_flight)
 
         response = await self.not_auth_client.post(
             ENDPOINT, data={'query': 'How long?', 'user_id': user_id}, headers=SSE_HEADERS
@@ -650,7 +650,7 @@ class TestDetachedRuns(TestBaseCheckpointerClass):
     async def test_a_json_turn_is_refused_while_a_run_is_in_flight(self) -> None:
         user_id = str(uuid4())
         in_flight = asyncio.create_task(asyncio.sleep(2))
-        runs.register(user_id, in_flight)
+        runs.register_streaming_turn(user_id, in_flight)
 
         response = await self.not_auth_client.post(ENDPOINT, data={'query': 'How long?', 'user_id': user_id})
 
@@ -664,11 +664,11 @@ class _StubCheckpointer:
         self.closed_after_drain = False
 
     @asynccontextmanager
-    async def opened(self) -> AsyncGenerator['_StubCheckpointer', None]:
+    async def open_client(self) -> AsyncGenerator['_StubCheckpointer', None]:
         try:
             yield self
         finally:
-            self.closed_after_drain = not runs._RUNS
+            self.closed_after_drain = not runs._STREAMING_TURNS_BY_USER_ID
 
 
 class TestLifespanDrainsRuns:
@@ -682,7 +682,7 @@ class TestLifespanDrainsRuns:
 
         with patch(PATH_TO_CHECKPOINTER, return_value=_StubCheckpointer()) as checkpointer:
             async with lifespan(FastAPI()):
-                runs.register(str(uuid4()), asyncio.create_task(_slow_turn()))
+                runs.register_streaming_turn(str(uuid4()), asyncio.create_task(_slow_turn()))
 
         assert finished is True, 'shutdown returned while a turn was still writing'
         assert checkpointer.return_value.closed_after_drain is True

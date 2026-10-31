@@ -19,29 +19,29 @@ async def get_test_room(room_id: str, db_client: DynamoDBClient) -> Room | None:
 
 
 async def get_test_faculty(faculty_id: str, db_client: DynamoDBClient) -> FacultyItem | None:
-    row = await _faculties(db_client).get_item(FacultyItem.key(faculty_id), consistent_read=True)
+    row = await _faculties(db_client).get_item(FacultyItem.build_key(faculty_id), consistent_read=True)
     return FacultyItem.model_validate(row) if row is not None else None
 
 
 async def get_test_faculty_dependants(faculty_id: str, db_client: DynamoDBClient) -> int | None:
-    row = await _faculties(db_client).get_item(FacultyItem.key(faculty_id), consistent_read=True)
+    row = await _faculties(db_client).get_item(FacultyItem.build_key(faculty_id), consistent_read=True)
     return int(row.get('dependants', 0)) if row is not None else None
 
 
 async def get_test_faculty_name_reservation(name: str, db_client: DynamoDBClient) -> FacultyNameItem | None:
-    row = await _faculties(db_client).get_item(FacultyNameItem.key(name), consistent_read=True)
+    row = await _faculties(db_client).get_item(FacultyNameItem.build_key(name), consistent_read=True)
     return FacultyNameItem.model_validate(row) if row is not None else None
 
 
 async def get_test_program(program_id: str, db_client: DynamoDBClient) -> ProgramItem | None:
-    row = await _programs(db_client).get_item(ProgramItem.key(program_id), consistent_read=True)
+    row = await _programs(db_client).get_item(ProgramItem.build_key(program_id), consistent_read=True)
     return ProgramItem.model_validate(row) if row is not None else None
 
 
 async def get_test_program_name_reservation(
     faculty_id: str, name: str, db_client: DynamoDBClient
 ) -> ProgramNameItem | None:
-    row = await _programs(db_client).get_item(ProgramNameItem.key(faculty_id, name), consistent_read=True)
+    row = await _programs(db_client).get_item(ProgramNameItem.build_key(faculty_id, name), consistent_read=True)
     return ProgramNameItem.model_validate(row) if row is not None else None
 
 

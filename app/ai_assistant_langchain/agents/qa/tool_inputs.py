@@ -33,12 +33,12 @@ class FindPlaceToolInput(BaseModel):
     )
 
 
-def _blank_to_none(value: object) -> object:
+def _normalize_blank_filter(filter_value: object) -> object:
     """A filter of nothing but whitespace is a filter that was not given."""
-    return None if isinstance(value, str) and not value.strip() else value
+    return None if isinstance(filter_value, str) and not filter_value.strip() else filter_value
 
 
-OptionalFilter = Annotated[str | None, BeforeValidator(_blank_to_none)]
+OptionalFilter = Annotated[str | None, BeforeValidator(_normalize_blank_filter)]
 
 
 class GetScheduleToolInput(BaseModel):

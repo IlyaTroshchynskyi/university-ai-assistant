@@ -1,28 +1,28 @@
 from fastapi import APIRouter, Depends
 
-from app.api.v1.rooms.schemas import CreateRoom, Room
+from app.api.v1.rooms.schemas import Room, RoomCreate
 from app.api.v1.rooms.service import RoomsService
 
 router = APIRouter(tags=['Rooms'])
 
 
 @router.post('/rooms', status_code=201)
-async def create_rooms(
-    creation: CreateRoom,
+async def create_room(
+    creation: RoomCreate,
     service: RoomsService = Depends(),
 ) -> Room:
     return await service.create_room(creation)
 
 
 @router.get('/rooms')
-async def get_all_rooms(
+async def list_rooms(
     service: RoomsService = Depends(),
 ) -> list[Room]:
     return await service.list_rooms()
 
 
 @router.get('/rooms/{room_id}')
-async def get_room(
+async def find_room(
     room_id: str,
     service: RoomsService = Depends(),
 ) -> Room:

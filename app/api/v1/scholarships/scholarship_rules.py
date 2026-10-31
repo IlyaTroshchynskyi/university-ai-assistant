@@ -51,7 +51,7 @@ NEED_BASED = Scholarship('Need-Based Access Grant', AwardKind.TUITION_DISCOUNT, 
 WOMEN_IN_STEM = Scholarship('Women in STEM Scholarship', AwardKind.YEARLY_AMOUNT, 5_000)
 
 
-def evaluate_scholarships(
+def check_scholarship_eligibility(
     gpa: float,
     family_income: float | None = None,
     entrance_exam_score: float | None = None,

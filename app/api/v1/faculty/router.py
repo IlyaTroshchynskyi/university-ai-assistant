@@ -15,7 +15,7 @@ async def create_faculty(
 
 
 @router.get('/faculties')
-async def get_all_faculties(
+async def list_faculties(
     service: FacultyService = Depends(),
 ) -> list[FacultyItem]:
     return await service.list_faculties()

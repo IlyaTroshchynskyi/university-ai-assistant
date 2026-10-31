@@ -131,7 +131,7 @@ guard reads it as a **condition** rather than as a prior read:
 
 ```python
 TransactDelete(
-    FacultyItem.key(faculty_id),
+    FacultyItem.build_key(faculty_id),
     condition=Attr(KeyAttr.PK).exists()
               & (Attr('dependants').not_exists() | Attr('dependants').eq(0)),
 )

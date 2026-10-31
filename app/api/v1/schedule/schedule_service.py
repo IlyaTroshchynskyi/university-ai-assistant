@@ -18,15 +18,15 @@ from app.settings import get_settings
 logger = logging.getLogger(__name__)
 
 
-Names: TypeAlias = dict[str, str]
+NamesById: TypeAlias = dict[str, str]
 
 
 _WEEKDAY_ORDER = {weekday: position for position, weekday in enumerate(Weekday)}
 _TIME_FORMAT = '%H:%M'
 
 
-def _strip_value(value: str | None) -> str | None:
-    return (value.strip() or None) if value else None
+def _normalize_filter(filter_value: str | None) -> str | None:
+    return (filter_value.strip() or None) if filter_value else None
 
 
 class ScheduleService:
@@ -49,39 +49,45 @@ class ScheduleService:
         course: str | None = None,
         weekday: Weekday | None = None,
     ) -> list[ScheduleEntry]:
-        groups, professors = await self._resolve(_strip_value(group), _strip_value(professor))
+        groups, professors = await self._resolve_name_filters(_normalize_filter(group), _normalize_filter(professor))
 
         classes = [
             row
-            for row in await self._read_classes(groups, professors)
+            for row in await self._list_matching_classes(groups, professors)
             if (weekday is None or row.weekday == weekday) and (professors is None or row.professor_id in professors)
         ]
 
-        courses: Names = {}
-        wanted = normalize_name(course or '')
-        if wanted:
+        courses: NamesById = {}
+        wanted_course = normalize_name(course or '')
+        if wanted_course:
             courses = await self._find_names(self._courses, CourseItem, {row.course_id for row in classes}, 'name')
-            classes = [row for row in classes if wanted in normalize_name(courses.get(row.course_id, ''))]
+            classes = [row for row in classes if wanted_course in normalize_name(courses.get(row.course_id, ''))]
 
-        entries = await self._hydrate(classes, courses=courses, groups=groups or {}, professors=professors or {})
+        entries = await self._build_schedule_entries(
+            classes, courses=courses, groups=groups or {}, professors=professors or {}
+        )
         return sorted(entries, key=lambda entry: (_WEEKDAY_ORDER[entry.weekday], entry.start_time))
 
-    async def _resolve(self, group: str | None, professor: str | None) -> tuple[Names | None, Names | None]:
-        async with asyncio.TaskGroup() as lookups:
-            groups_task = lookups.create_task(self._schedule.find_groups_by_name(group)) if group else None
+    async def _resolve_name_filters(
+        self, group: str | None, professor: str | None
+    ) -> tuple[NamesById | None, NamesById | None]:
+        async with asyncio.TaskGroup() as task_group:
+            groups_task = task_group.create_task(self._schedule.find_groups_by_name(group)) if group else None
             professors_task = (
-                lookups.create_task(self._professors.find_professors_by_name(professor)) if professor else None
+                task_group.create_task(self._professors.find_professors_by_name(professor)) if professor else None
             )
 
-        groups: Names | None = None
+        groups: NamesById | None = None
         if groups_task is not None:
             groups = groups_task.result()
             if not groups:
                 raise NotFoundError(f'No group is called {group!r}.')
 
-        professors: Names | None = None
+        professors: NamesById | None = None
         if professors_task is not None:
-            professors = {str(found.id): found.full_name for found in professors_task.result() or []}
+            professors = {
+                str(found_professor.id): found_professor.full_name for found_professor in professors_task.result() or []
+            }
             if not professors:
                 raise NotFoundError(
                     f'No professor was found by the name {professor!r}. The lookup takes a full name '
@@ -90,33 +96,33 @@ class ScheduleService:
 
         return groups, professors
 
-    async def _read_classes(self, groups: Names | None, professors: Names | None) -> list[Schedule]:
+    async def _list_matching_classes(self, groups: NamesById | None, professors: NamesById | None) -> list[Schedule]:
         if groups is not None:
-            reads = [self._schedule.list_group_classes(group_id) for group_id in groups]
+            class_reads = [self._schedule.list_group_classes(group_id) for group_id in groups]
         elif professors is not None:
-            reads = [self._schedule.list_professor_classes(professor_id) for professor_id in professors]
+            class_reads = [self._schedule.list_professor_classes(professor_id) for professor_id in professors]
         else:
             return await self._schedule.list_classes()
 
-        async with asyncio.TaskGroup() as queries:
-            tasks = [queries.create_task(read) for read in reads]
+        async with asyncio.TaskGroup() as task_group:
+            tasks = [task_group.create_task(class_read) for class_read in class_reads]
 
         return [row for task in tasks for row in task.result()]
 
-    async def _hydrate(
-        self, classes: list[Schedule], courses: Names, groups: Names, professors: Names
+    async def _build_schedule_entries(
+        self, classes: list[Schedule], courses: NamesById, groups: NamesById, professors: NamesById
     ) -> list[ScheduleEntry]:
         if not classes:
             return []
 
-        async with asyncio.TaskGroup() as lookups:
-            courses_task = lookups.create_task(
+        async with asyncio.TaskGroup() as task_group:
+            courses_task = task_group.create_task(
                 self._find_names(self._courses, CourseItem, {row.course_id for row in classes} - courses.keys(), 'name')
             )
-            groups_task = lookups.create_task(
+            groups_task = task_group.create_task(
                 self._find_names(self._schedule, GroupItem, {row.group_id for row in classes} - groups.keys(), 'name')
             )
-            professors_task = lookups.create_task(
+            professors_task = task_group.create_task(
                 self._find_names(
                     self._professors,
                     ProfessorItem,
@@ -124,7 +130,9 @@ class ScheduleService:
                     'full_name',
                 )
             )
-            rooms_task = lookups.create_task(self._find_rows(self._rooms, RoomItem, {row.room_id for row in classes}))
+            rooms_task = task_group.create_task(
+                self._find_rows(self._rooms, RoomItem, {row.room_id for row in classes})
+            )
 
         courses = courses | courses_task.result()
         groups = groups | groups_task.result()
@@ -151,16 +159,18 @@ class ScheduleService:
         return entries
 
     @staticmethod
-    async def _find_rows(table: DynamoDBService, item: type[TableItem], ids: set[str]) -> dict[str, dict]:
+    async def _find_rows(table: DynamoDBService, item_type: type[TableItem], ids: set[str]) -> dict[str, dict]:
         if not ids:
             return {}
 
-        rows = await table.batch_get([item.key(item_id) for item_id in ids])
+        rows = await table.batch_get([item_type.build_key(item_id) for item_id in ids])
         return {str(row['id']): row for row in rows if 'id' in row}
 
     @classmethod
-    async def _find_names(cls, table: DynamoDBService, item: type[TableItem], ids: set[str], field: str) -> Names:
-        rows = await cls._find_rows(table, item, ids)
+    async def _find_names(
+        cls, table: DynamoDBService, item_type: type[TableItem], ids: set[str], field: str
+    ) -> NamesById:
+        rows = await cls._find_rows(table, item_type, ids)
         return {item_id: str(row[field]) for item_id, row in rows.items() if field in row}
 
 

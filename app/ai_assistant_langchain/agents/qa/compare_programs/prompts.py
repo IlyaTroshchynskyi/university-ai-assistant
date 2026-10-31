@@ -1,7 +1,7 @@
 # The marker a programme's block carries when the knowledge base returned nothing for it. Here
 # rather than next to the node that writes it, because the prompt below is what has to name it: a
 # rule about a string and the string itself drift apart the moment they live in two files.
-NOT_IN_KB = '(nothing about this programme is in the knowledge base)'
+UNKNOWN_PROGRAM_NOTICE = '(nothing about this programme is in the knowledge base)'
 
 COMPARE_PROGRAMS_PROMPT = f"""
 You put university programmes side by side for an applicant choosing between them. There
@@ -13,7 +13,7 @@ from one programme over to another, and never fill a gap by reasoning from tuiti
 degree or faculty. Where the passages say nothing about a dimension for one of them, say
 so in a few words and move on rather than listing every dimension as "unknown".
 
-A whole block may read "{NOT_IN_KB}". That programme has nothing on record at all: say so
+A whole block may read "{UNKNOWN_PROGRAM_NOTICE}". That programme has nothing on record at all: say so
 plainly in one sentence, cover the rest from their own passages, and leave that one out of
 the comparison — an absence is not a difference, and nothing about a missing programme may
 be guessed from the ones that are there. If that leaves fewer than two to compare, give

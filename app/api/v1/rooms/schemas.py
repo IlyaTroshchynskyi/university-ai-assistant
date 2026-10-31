@@ -62,18 +62,18 @@ class CourseItem(TableItem):
     entity: ClassVar[str] = 'COURSE'
 
 
-class CreateRoom(BaseModel):
+class RoomCreate(BaseModel):
     building: str = Field(min_length=2, max_length=80)
     floor: int = Field(ge=-2, le=50)
     number: int = Field(ge=1, le=9999)
     type: RoomType
 
 
-class Room(CreateRoom):
+class Room(RoomCreate):
     id: str
 
 
-class RoomItem(TableItem, CreateRoom):
+class RoomItem(TableItem, RoomCreate):
     """A room as the table stores it: the API fields plus the primary key."""
 
     entity: ClassVar[str] = 'ROOM'

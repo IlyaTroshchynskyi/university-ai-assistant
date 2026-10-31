@@ -7,7 +7,7 @@ import pytest
 from types_aiobotocore_dynamodb import DynamoDBClient
 
 from app.ai_assistant_langchain.history.repository import ConversationHistoryRepository
-from app.ai_assistant_langchain.history.schemas import NewMessage, Role, utc_now
+from app.ai_assistant_langchain.history.schemas import format_utc_now, NewMessage, Role
 from app.ai_assistant_langchain.schemas import ChatSchemaOut, PendingApproval
 from app.core.dynamodb.base_service import DynamoDBService
 from app.settings import get_settings
@@ -112,7 +112,9 @@ class TestChatHistoryEndpoint(TestBaseAgentClass):
     async def test_histories_do_not_leak_between_users(self) -> None:
         other_user = str(uuid4())
         await self._seed_first_turn(self.user_id)
-        await self.repository.append_turn(other_user, [NewMessage(Role.USER, 'Where is the library?', utc_now())])
+        await self.repository.append_turn(
+            other_user, [NewMessage(Role.USER, 'Where is the library?', format_utc_now())]
+        )
 
         response = await self.not_auth_client.get(HISTORY_ENDPOINT.format(user_id=other_user))
 
@@ -149,7 +151,7 @@ class TestChatTurnIsRecorded(TestBaseCheckpointerClass):
         )
 
         assert response.status_code == 200
-        stored = await self.repository.list_message_by_user_id(user_id)
+        stored = await self.repository.list_messages_by_user_id(user_id)
         assert [(message.role, message.content) for message in stored] == [
             (Role.USER, 'How long is the CS bachelor?'),
             (Role.ASSISTANT, 'Four years.'),
@@ -171,7 +173,7 @@ class TestChatTurnIsRecorded(TestBaseCheckpointerClass):
 
         state = await self.agent.aget_state({'configurable': {'thread_id': user_id}})
         assert len(state.values['messages']) == 4
-        stored = await self.repository.list_message_by_user_id(user_id)
+        stored = await self.repository.list_messages_by_user_id(user_id)
         assert [(message.role, message.content) for message in stored] == [
             (Role.USER, 'How much is CS tuition?'),
             (Role.ASSISTANT, 'Tuition is 12000 EUR per year.'),
@@ -192,7 +194,7 @@ class TestChatTurnIsRecorded(TestBaseCheckpointerClass):
 
         await self.not_auth_client.post(ENDPOINT, data={'query': 'How much does it cost?', 'user_id': user_id})
 
-        stored = await self.repository.list_message_by_user_id(user_id)
+        stored = await self.repository.list_messages_by_user_id(user_id)
         assert [(message.role, message.content) for message in stored] == [
             (Role.USER, 'How long is the CS bachelor?'),
             (Role.ASSISTANT, 'Four years.'),
@@ -207,11 +209,11 @@ class TestChatTurnIsRecorded(TestBaseCheckpointerClass):
 
         await self.not_auth_client.post(ENDPOINT, data={'query': 'How much does it cost?', 'user_id': user_id})
 
-        stored = await self.repository.list_message_by_user_id(user_id)
+        stored = await self.repository.list_messages_by_user_id(user_id)
         assert [(message.role, message.content) for message in stored] == [
             (Role.USER, 'How much does it cost?'),
             (Role.ASSISTANT, '12000 EUR per year.'),
         ]
-        assert [message.content for message in await self.repository.list_message_by_user_id(other_user)] == [
+        assert [message.content for message in await self.repository.list_messages_by_user_id(other_user)] == [
             'Where is the library?'
         ]

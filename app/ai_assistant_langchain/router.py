@@ -18,7 +18,7 @@ router = APIRouter(tags=['Langchain assistant'])
     responses={200: {'content': {SSE_MEDIA_TYPE: {'schema': {'type': 'string'}}}}},
 )
 async def chat_with_user(
-    input_data: Annotated[UserQuery, Form(media_type='multipart/form-data')],
+    user_query: Annotated[UserQuery, Form(media_type='multipart/form-data')],
     request: Request,
     service: ChatService = Depends(),
 ) -> ChatSchemaOut | EventSourceResponse:
@@ -26,14 +26,14 @@ async def chat_with_user(
     that asks for anything else — including nothing at all — gets the JSON it has always got.
     """
     documents: list[DocumentImage] = []
-    if input_data.files:
-        await service.refuse_unavailable_thread(input_data.user_id)
-        documents = await read_applicant_documents(input_data.files)
+    if user_query.files:
+        await service.refuse_unavailable_thread(user_query.user_id)
+        documents = await read_applicant_documents(user_query.files)
 
     if SSE_MEDIA_TYPE not in request.headers.get('accept', ''):
-        return await service.process_turn(input_data, documents)
+        return await service.run_turn(user_query, documents)
 
-    queue = await service.start_streaming_turn(input_data, documents)
+    queue = await service.start_streaming_turn(user_query, documents)
     return EventSourceResponse(service.stream_events(queue))
 
 
@@ -43,4 +43,4 @@ async def get_chat_history(
     service: ChatService = Depends(),
 ) -> list[HistoryMessage]:
     # Todo paginate this. It returns the whole thread today, and a long one is both a slow response
-    return await service.get_history(user_id)
+    return await service.list_chat_history(user_id)

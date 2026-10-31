@@ -12,7 +12,7 @@ from app.api.v1.programs.repository import ProgramsRepository
 from app.api.v1.programs.schemas import ProgramItem
 from app.api.v1.rooms.enums import Weekday
 from app.api.v1.rooms.repository import RoomsRepository
-from app.api.v1.rooms.schemas import CreateRoom, Room
+from app.api.v1.rooms.schemas import Room, RoomCreate
 from app.core.dynamodb.base_items import DEPENDANTS
 from app.core.dynamodb.schemas import Slot
 from app.settings import get_settings
@@ -26,7 +26,7 @@ from tests.factory_models.schedule_factory import ClassRow, CourseRow, NamedGrou
 from tests.factory_models.slot_factory import SlotRow
 
 
-async def create_test_room(creation: CreateRoom, db_client: DynamoDBClient) -> Room:
+async def create_test_room(creation: RoomCreate, db_client: DynamoDBClient) -> Room:
     repo = RoomsRepository(db_client, get_settings())
     return await repo.create_room(creation)
 
@@ -63,7 +63,7 @@ async def create_test_group_row(program_id: str, db_client: DynamoDBClient) -> G
     group = GroupRow(gsi1pk=f'PROGRAM#{program_id}')
     await table_service(db_client, settings.DYNAMODB_GROUPS_TABLE).put_item(group)
     await table_service(db_client, settings.DYNAMODB_PROGRAMS_TABLE).update_item(
-        ProgramItem.key(program_id),
+        ProgramItem.build_key(program_id),
         f'ADD {DEPENDANTS} :one',
         {':one': 1},
     )

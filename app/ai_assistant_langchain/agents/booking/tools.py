@@ -24,8 +24,8 @@ async def list_free_slots(date: datetime.date) -> list[dict] | str:
     """
     # The table keys days as strings; the schema parses them as dates. This is where the two meet.
     day = date.isoformat()
-    async with open_slots_repository() as repo:
-        slots = await repo.list_open_slots_on_date(day)
+    async with open_slots_repository() as repository:
+        slots = await repository.list_open_slots_on_date(day)
 
     logger.info('ListFreeSlots date=%r -> %d slot(s)', day, len(slots))
     if not slots:
@@ -43,8 +43,8 @@ async def find_earliest_open_slots() -> list[dict] | str:
     # From today, never from the epoch: a slot left open on a day already past is not an
     # appointment anyone can take, and it would otherwise be the first thing offered.
     today = datetime.date.today().isoformat()
-    async with open_slots_repository() as repo:
-        slots = await repo.list_earliest_open_slots(today)
+    async with open_slots_repository() as repository:
+        slots = await repository.list_earliest_open_slots(today)
 
     logger.info('FindEarliestOpenSlots from=%r -> %d slot(s)', today, len(slots))
     if not slots:
@@ -60,8 +60,8 @@ async def list_my_bookings(applicant_email: EmailStr) -> list[dict] | str:
     Returns each booking's id, date, start time and topic, or a sentence saying nothing is booked
     under that address.
     """
-    async with open_slots_repository() as repo:
-        slots = await repo.list_student_bookings(applicant_email)
+    async with open_slots_repository() as repository:
+        slots = await repository.list_student_bookings(applicant_email)
 
     logger.info('ListMyBookings email=%r -> %d booking(s)', applicant_email, len(slots))
     if not slots:
@@ -82,8 +82,8 @@ async def book_appointment(
     the result names the appointment that was booked.
     """
     day = date.isoformat()
-    async with open_slots_repository() as repo:
-        slot = await repo.book_slot(day, start_time, slot_id, booked_by=applicant_email, topic=topic)
+    async with open_slots_repository() as repository:
+        slot = await repository.book_slot(day, start_time, slot_id, booked_by=applicant_email, topic=topic)
 
     if slot is None:
         # A lost conditional write, not a failure: the slot was taken (or never existed) between the
@@ -103,8 +103,8 @@ async def cancel_appointment(slot_id: int, date: datetime.date, start_time: str,
     booked, or is booked under a different address, is left untouched and the result says so.
     """
     day = date.isoformat()
-    async with open_slots_repository() as repo:
-        slot = await repo.cancel_slot(day, start_time, slot_id, booked_by=applicant_email)
+    async with open_slots_repository() as repository:
+        slot = await repository.cancel_slot(day, start_time, slot_id, booked_by=applicant_email)
 
     if slot is None:
         # Deliberately does not say which of the two it was: whether somebody *else* holds that time

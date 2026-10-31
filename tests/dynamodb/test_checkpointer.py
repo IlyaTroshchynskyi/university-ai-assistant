@@ -53,7 +53,7 @@ def metadata(step: int) -> CheckpointMetadata:
 class TestDynamoDBCheckpointer:
     @pytest.fixture(autouse=True)
     async def _a_provide_saver(self, tables: TableSpecs) -> AsyncGenerator[None, None]:
-        async with DynamoDBCheckpointer(get_aioboto_session(), get_settings()).opened() as saver:
+        async with DynamoDBCheckpointer(get_aioboto_session(), get_settings()).open_client() as saver:
             self.saver = saver
             self.thread_id = str(uuid4())
             yield
@@ -213,7 +213,7 @@ class TestDynamoDBCheckpointer:
 
     async def test_threads_do_not_see_each_other(self) -> None:
         await self._put({'messages': [HumanMessage(content='Mine')]}, {'messages': 1})
-        async with DynamoDBCheckpointer(get_aioboto_session(), get_settings()).opened() as other:
+        async with DynamoDBCheckpointer(get_aioboto_session(), get_settings()).open_client() as other:
             checkpoint = make_checkpoint({'messages': [HumanMessage(content='Theirs')]}, {'messages': 1})
             await other.aput(config_for(str(uuid4())), checkpoint, metadata(1), {'messages': 1})
 
@@ -225,7 +225,7 @@ class TestDynamoDBCheckpointer:
 class TestPendingWrites:
     @pytest.fixture(autouse=True)
     async def _a_provide_saver(self, tables: TableSpecs) -> AsyncGenerator[None, None]:
-        async with DynamoDBCheckpointer(get_aioboto_session(), get_settings()).opened() as saver:
+        async with DynamoDBCheckpointer(get_aioboto_session(), get_settings()).open_client() as saver:
             self.saver = saver
             self.thread_id = str(uuid4())
             checkpoint = make_checkpoint({'messages': [HumanMessage(content='Hello')]}, {'messages': 1})
@@ -307,7 +307,7 @@ class TestPendingWrites:
 class TestListingCheckpoints:
     @pytest.fixture(autouse=True)
     async def _a_provide_history(self, tables: TableSpecs) -> AsyncGenerator[None, None]:
-        async with DynamoDBCheckpointer(get_aioboto_session(), get_settings()).opened() as saver:
+        async with DynamoDBCheckpointer(get_aioboto_session(), get_settings()).open_client() as saver:
             self.saver = saver
             self.thread_id = str(uuid4())
             self.ids: list[str] = []
@@ -347,7 +347,7 @@ class TestListingCheckpoints:
 class TestLargePayloads:
     @pytest.fixture(autouse=True)
     async def _a_provide_saver(self, tables: TableSpecs) -> AsyncGenerator[None, None]:
-        async with DynamoDBCheckpointer(get_aioboto_session(), get_settings()).opened() as saver:
+        async with DynamoDBCheckpointer(get_aioboto_session(), get_settings()).open_client() as saver:
             self.saver = saver
             self.thread_id = str(uuid4())
             yield

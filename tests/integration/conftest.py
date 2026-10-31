@@ -12,7 +12,7 @@ from tests.db_utils import get_dynamo_base_service, TableSpecs
 @pytest_asyncio.fixture(scope='session', loop_scope='session')
 async def eval_checkpointer(tables: TableSpecs) -> AsyncGenerator[None, None]:
     """Open the agent's DynamoDB client once, on the session loop."""
-    async with get_checkpointer().opened():
+    async with get_checkpointer().open_client():
         yield
 
 

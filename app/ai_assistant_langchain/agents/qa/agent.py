@@ -10,19 +10,19 @@ from langgraph.runtime import Runtime
 from app.ai_assistant_langchain.agents.qa.prompts import MAIN_CHAT_PROMPT
 from app.ai_assistant_langchain.agents.qa.state import AssistantAgentState
 from app.ai_assistant_langchain.agents.qa.tools import ASSISTANT_TOOLS, report_issue
-from app.ai_assistant_langchain.graph.models import get_model_factory
-from app.ai_assistant_langchain.graph.schemas import CustomContext
+from app.ai_assistant_langchain.graph.models import get_chat_model
+from app.ai_assistant_langchain.graph.schemas import AgentRunContext
 
 
 @lru_cache
-def create_assistant_agent() -> CompiledStateGraph:
-    model = get_model_factory()
+def build_assistant_agent() -> CompiledStateGraph:
+    model = get_chat_model()
     return create_agent(
         model=model,
         system_prompt=MAIN_CHAT_PROMPT,
         tools=ASSISTANT_TOOLS,
         state_schema=AssistantAgentState,
-        context_schema=CustomContext,
+        context_schema=AgentRunContext,
         # NO checkpointer — `build_main_graph` owns it. A subgraph compiled with a saver of its own
         # runs on its own thread, and the parent's thread_id and interrupt plumbing break with it.
         middleware=[
@@ -43,6 +43,6 @@ def create_assistant_agent() -> CompiledStateGraph:
     )
 
 
-def _describe_issue_report(tool_call: ToolCall, state: AgentState, runtime: Runtime[CustomContext]) -> str:
+def _describe_issue_report(tool_call: ToolCall, state: AgentState, runtime: Runtime[AgentRunContext]) -> str:
     args = tool_call['args']
     return f'File a {args["category"]} issue: {args["text"]}'

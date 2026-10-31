@@ -17,7 +17,7 @@ from langgraph.types import Command, StreamPart
 
 from app.ai_assistant_langchain.applicant_documents.schemas import DocumentImage
 from app.ai_assistant_langchain.graph.main_graph import build_main_graph
-from app.ai_assistant_langchain.graph.schemas import AgentResponse, CustomContext
+from app.ai_assistant_langchain.graph.schemas import AgentResponse, AgentRunContext
 from app.ai_assistant_langchain.schemas import Decision
 from app.core.exceptions import ConflictingStatusError
 
@@ -39,7 +39,7 @@ class AgentService:
         user_id: str,
         documents: Sequence[DocumentImage] = (),
     ) -> AgentResponse:
-        await self.refuse_while_paused(user_id)
+        await self.refuse_paused_thread(user_id)
 
         logger.info(
             'Invoking agent for user_id=%s with %d messages and %d attached file(s)',
@@ -51,8 +51,8 @@ class AgentService:
             AgentResponse,
             await self._graph.ainvoke(
                 {'messages': messages},
-                config=self._config(user_id),
-                context=CustomContext(user_id=user_id, documents=list(documents)),
+                config=self._build_run_config(user_id),
+                context=AgentRunContext(user_id=user_id, documents=list(documents)),
             ),
         )
         logger.info('Agent response received for user_id=%s', user_id)
@@ -72,8 +72,8 @@ class AgentService:
             AgentResponse,
             await self._graph.ainvoke(
                 Command(resume={'decisions': hitl_decisions}),
-                config=self._config(user_id),
-                context=CustomContext(user_id=user_id),
+                config=self._build_run_config(user_id),
+                context=AgentRunContext(user_id=user_id),
             ),
         )
         logger.info('Resumed response received for user_id=%s', user_id)
@@ -82,7 +82,7 @@ class AgentService:
     async def build_hitl_decisions(
         self, decisions: list[Decision], user_id: str
     ) -> list[ApproveDecision | EditDecision | RejectDecision]:
-        request = await self._get_paused_request(user_id)
+        request = await self._require_paused_request(user_id)
         actions, configs = request['action_requests'], request['review_configs']
 
         if len(decisions) != len(actions):
@@ -99,7 +99,7 @@ class AgentService:
                     f"'{decision.type}' is not a decision {config['action_name']} accepts — "
                     f'this pause takes {" or ".join(config["allowed_decisions"])}.'
                 )
-            hitl_decisions.append(self._get_hitl_decision(decision, action))
+            hitl_decisions.append(self._build_hitl_decision(decision, action))
 
         return hitl_decisions
 
@@ -109,7 +109,7 @@ class AgentService:
         user_id: str,
         documents: Sequence[DocumentImage] = (),
     ) -> AsyncIterator[StreamPart]:
-        await self.refuse_while_paused(user_id)
+        await self.refuse_paused_thread(user_id)
 
         logger.info(
             'Streaming agent for user_id=%s with %d messages and %d attached file(s)',
@@ -117,7 +117,7 @@ class AgentService:
             len(messages),
             len(documents),
         )
-        async for part in self._astream_parts({'messages': messages}, user_id, documents):
+        async for part in self._stream_graph_parts({'messages': messages}, user_id, documents):
             yield part
 
     async def stream_resume(self, decisions: list[Decision], user_id: str) -> AsyncIterator[StreamPart]:
@@ -125,10 +125,10 @@ class AgentService:
         hitl_decisions = await self.build_hitl_decisions(decisions, user_id)
 
         logger.info('Streaming resume for user_id=%s with %s', user_id, [decision.type for decision in decisions])
-        async for part in self._astream_parts(Command(resume={'decisions': hitl_decisions}), user_id):
+        async for part in self._stream_graph_parts(Command(resume={'decisions': hitl_decisions}), user_id):
             yield part
 
-    async def refuse_while_paused(self, user_id: str) -> None:
+    async def refuse_paused_thread(self, user_id: str) -> None:
         """Refuse a new message while this thread is waiting on an approval.
 
         ``ainvoke`` with a fresh input does not resume an interrupted thread — it starts a new run
@@ -156,14 +156,14 @@ class AgentService:
         Public because replaying a thread needs it too: the pause is state the client has to see,
         not merely a guard on the next turn.
         """
-        state = await self._graph.aget_state(self._config(user_id))
+        state = await self._graph.aget_state(self._build_run_config(user_id))
         for task in state.tasks:
             for interrupt in task.interrupts:
                 return cast(HITLRequest, interrupt.value)
 
         return None
 
-    async def _get_paused_request(self, user_id: str) -> HITLRequest:
+    async def _require_paused_request(self, user_id: str) -> HITLRequest:
         request = await self.find_paused_request(user_id)
         if request is None:
             raise ConflictingStatusError('This thread is not paused on anything — there is nothing to decide.')
@@ -171,7 +171,7 @@ class AgentService:
         return request
 
     @staticmethod
-    def _get_hitl_decision(
+    def _build_hitl_decision(
         decision: Decision, action: ActionRequest
     ) -> ApproveDecision | EditDecision | RejectDecision:
         if decision.type == 'approve':
@@ -182,7 +182,7 @@ class AgentService:
 
         return {'type': 'edit', 'edited_action': {'name': action['name'], 'args': decision.args or {}}}
 
-    def _astream_parts(
+    def _stream_graph_parts(
         self,
         graph_input: StreamInput,
         user_id: str,
@@ -190,8 +190,8 @@ class AgentService:
     ) -> AsyncIterator[StreamPart]:
         return self._graph.astream(
             graph_input,
-            config=self._config(user_id),
-            context=CustomContext(user_id=user_id, documents=list(documents)),
+            config=self._build_run_config(user_id),
+            context=AgentRunContext(user_id=user_id, documents=list(documents)),
             # No `updates`: the pause arrives on the root `values` part, in its `interrupts` (P2).
             stream_mode=['messages', 'values'],
             # Without it a subagent's answer arrives once, whole, instead of as tokens — P1.
@@ -200,5 +200,5 @@ class AgentService:
         )
 
     @staticmethod
-    def _config(user_id: str) -> RunnableConfig:
+    def _build_run_config(user_id: str) -> RunnableConfig:
         return {'configurable': {'thread_id': user_id}}

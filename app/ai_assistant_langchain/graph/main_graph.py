@@ -8,16 +8,16 @@ from langgraph.graph.state import CompiledStateGraph, StateGraph
 from langgraph.runtime import Runtime
 from pydantic import BaseModel
 
-from app.ai_assistant_langchain.agents.booking.agent import create_booking_agent
-from app.ai_assistant_langchain.agents.qa.agent import create_assistant_agent
+from app.ai_assistant_langchain.agents.booking.agent import build_booking_agent
+from app.ai_assistant_langchain.agents.qa.agent import build_assistant_agent
 from app.ai_assistant_langchain.agents.qa.tools import DIRECT_ANSWER_TOOLS
 from app.ai_assistant_langchain.checkpointer.saver import get_checkpointer
 from app.ai_assistant_langchain.graph.enums import GraphNode
-from app.ai_assistant_langchain.graph.models import get_structured_output_model_factory
+from app.ai_assistant_langchain.graph.models import get_structured_output_model
 from app.ai_assistant_langchain.graph.prompts import build_router_prompt
-from app.ai_assistant_langchain.graph.schemas import CustomContext
+from app.ai_assistant_langchain.graph.schemas import AgentRunContext
 
-NO_HISTORY = '(no earlier messages — the conversation starts here)'
+NO_HISTORY_NOTICE = '(no earlier messages — the conversation starts here)'
 
 
 class MainState(TypedDict):
@@ -29,7 +29,7 @@ class Route(BaseModel):
     destination: GraphNode
 
 
-def _recent_turns(messages: Sequence[BaseMessage], limit: int = 4, max_chars: int = 300) -> str:
+def _format_recent_turns(messages: Sequence[BaseMessage], limit: int = 4, max_characters: int = 300) -> str:
     lines: list[str] = []
     for message in reversed(messages):
         if isinstance(message, HumanMessage):
@@ -45,14 +45,14 @@ def _recent_turns(messages: Sequence[BaseMessage], limit: int = 4, max_chars: in
         if not text:
             continue
 
-        lines.append(f'{speaker}: {text[:max_chars]}')
+        lines.append(f'{speaker}: {text[:max_characters]}')
         if len(lines) == limit:
             break
 
-    return '\n'.join(reversed(lines)) if lines else NO_HISTORY
+    return '\n'.join(reversed(lines)) if lines else NO_HISTORY_NOTICE
 
 
-async def route(state: MainState, runtime: Runtime[CustomContext]) -> GraphNode:
+async def route_message(state: MainState, runtime: Runtime[AgentRunContext]) -> GraphNode:
     """Pick the handler for the newest message, with the turns before it as background.
 
     The message being routed stays a real ``HumanMessage`` while its background goes into the
@@ -61,25 +61,25 @@ async def route(state: MainState, runtime: Runtime[CustomContext]) -> GraphNode:
     if runtime.context.documents:
         return GraphNode.QA
 
-    *earlier, current = state['messages']
-    decision = (
-        await get_structured_output_model_factory()
+    *earlier_messages, current_message = state['messages']
+    route_decision = (
+        await get_structured_output_model()
         .with_structured_output(Route)
-        .ainvoke([SystemMessage(build_router_prompt(_recent_turns(earlier))), current])
+        .ainvoke([SystemMessage(build_router_prompt(_format_recent_turns(earlier_messages))), current_message])
     )
-    return decision.destination
+    return route_decision.destination
 
 
 @lru_cache
 def build_main_graph() -> CompiledStateGraph:
-    builder = StateGraph(MainState, context_schema=CustomContext)
+    builder = StateGraph(MainState, context_schema=AgentRunContext)
 
-    builder.add_node(GraphNode.QA, create_assistant_agent())
-    builder.add_node(GraphNode.BOOKING, create_booking_agent())
+    builder.add_node(GraphNode.QA, build_assistant_agent())
+    builder.add_node(GraphNode.BOOKING, build_booking_agent())
 
     builder.add_conditional_edges(
         START,
-        route,
+        route_message,
         {GraphNode.QA: GraphNode.QA, GraphNode.BOOKING: GraphNode.BOOKING},
     )
 

@@ -55,6 +55,8 @@ model read them and needs neither Qdrant nor DynamoDB.
 without defaults, so the app and the tests refuse to start otherwise. To run untraced, set
 `LANGSMITH_TRACING=false` and leave the other three empty. Tracing itself only switches on when the
 names are exported into the process environment; `.env` alone does not reach the LangSmith SDK.
+Under pytest it would, because importing `deepeval` loads `.env`, so `tests/conftest.py` sets
+`LANGSMITH_TRACING=false` for every run, the evaluations included.
 
 ## Architecture
 
@@ -79,7 +81,7 @@ Both are compiled without a checkpointer; the main graph owns the only one, and 
 pause inside a subagent surface through the endpoint.
 
 The package is laid out by who uses what. The root is the endpoint: `router.py`, the services it
-calls and the wire schemas. `graph/` is the main graph and what both agents share — `CustomContext`
+calls and the wire schemas. `graph/` is the main graph and what both agents share — `AgentRunContext`
 and `AgentResponse` (`graph/schemas.py`), `GraphNode`, the chat models, the router prompt. Each
 agent is a folder under `agents/` holding its own `agent.py`, `tools.py`, `tool_inputs.py` and
 `prompts.py`; `compare_programs/`, the one tool with a graph of its own, sits inside `agents/qa/`.
@@ -99,7 +101,7 @@ agent is a folder under `agents/` holding its own `agent.py`, `tools.py`, `tool_
   (`build_issue_votes_key`), shared by the seeder and `IssueItem` because the "most voted" order is
   read straight off it.
   `validate_documents` takes no arguments from the model: it reads the files off
-  `CustomContext.documents`, which a message sent with `files` fills. Nothing says which file is
+  `AgentRunContext.documents`, which a message sent with `files` fills. Nothing says which file is
   which document — the vision call that reads a file also decides its `document_type`. The run
   context is not checkpointed, so the images exist for that one request and are stored nowhere.
   What was read off them is kept: `documents_on_file`, a key of `AssistantAgentState` and of
@@ -108,7 +110,7 @@ agent is a folder under `agents/` holding its own `agent.py`, `tools.py`, `tool_
   masked. The tool reads it from `runtime.state` and writes it back, which is why it returns a
   `Command` carrying its own `ToolMessage` rather than a dict. So the documents can arrive one
   message at a time, and a message without files is judged on what is on file. A turn that carries
-  files skips the router (`route` sends it to `qa`), and the model's copy of the message ends with
+  files skips the router (`route_message` sends it to `qa`), and the model's copy of the message ends with
   `ATTACHMENT_LINE_TEMPLATE`, which the prompt quotes and which counts the files rather than naming
   them; a message that is files alone is that line and nothing else, never an English sentence of
   ours, because the model answers in the language of what it reads. The transcript keeps the text
@@ -135,7 +137,7 @@ agent is a folder under `agents/` holding its own `agent.py`, `tools.py`, `tool_
   `MAX_FILES_PER_MESSAGE` `files`. A JSON body is a 422. The same endpoint streams when the request
   sends `Accept: text/event-stream`. For a message with files the router refuses a busy or paused
   thread, then reads the uploads (`document_reader.py`: PNG and JPEG as they are, a PDF rendered to
-  an image, anything else a 415) and hands them to the same `process_turn` or
+  an image, anything else a 415) and hands them to the same `run_turn` or
   `start_streaming_turn`. There is one path for a message, with files or without: every step takes
   `documents`, empty when the message carries none. The uploads are read before a stream starts, so
   a refused file still gets its status code. PDF pages
@@ -153,8 +155,8 @@ agent is a folder under `agents/` holding its own `agent.py`, `tools.py`, `tool_
 The graph, both agents and the chat model are `lru_cache`d factories. The booking prompt is rebuilt
 per call (it carries today's date); the QA prompt is a constant and knows no date.
 
-There are two chat models (`graph/models.py`). `get_model_factory` is the one whose answers are
-shown, and it streams. `get_structured_output_model_factory` is for a call whose answer is parsed
+There are two chat models (`graph/models.py`). `get_chat_model` is the one whose answers are
+shown, and it streams. `get_structured_output_model` is for a call whose answer is parsed
 and never shown — the router's — and is built with `disable_streaming=True`, as is the extractor's
 vision model. Under a streamed turn LangGraph makes every model call in the graph stream, and
 `langchain-openai` (still so in 1.7.0) dumps the events of a streamed structured-output call with
@@ -197,8 +199,8 @@ place they become HTTP status codes.
 
 - `tests/api/` drives the app over HTTP with `StubChatModel` (`tests/agent_stubs.py`): scripted
   replies, scripted routes, real graph, real checkpointer. The stub is installed by patching the
-  model factory under **each importing module's own name** — `get_model_factory` in each agent's
-  `agent.py`, `get_structured_output_model_factory` in `graph/main_graph.py` — and clearing all
+  model factory under **each importing module's own name** — `get_chat_model` in each agent's
+  `agent.py`, `get_structured_output_model` in `graph/main_graph.py` — and clearing all
   three graph caches.
 - `tests/dynamodb/` calls savers and services directly against the local DynamoDB.
 - `tests/unit/` is for pure functions and needs neither DynamoDB nor a model.

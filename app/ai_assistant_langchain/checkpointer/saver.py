@@ -31,26 +31,26 @@ from langgraph.checkpoint.base import (
 
 from app.ai_assistant_langchain.checkpointer.items import (
     BlobRow,
+    build_row_key,
     CheckpointRow,
     EMPTY_TYPE,
-    row_key,
     WriteRow,
 )
 from app.core.dynamodb.base_service import DynamoDBService
 from app.core.dynamodb.client import get_aioboto_session, open_dynamo_client
-from app.core.dynamodb.indexes import thread_key
+from app.core.dynamodb.indexes import build_thread_key
 from app.core.dynamodb.schemas import TransactAction, TransactPut
 from app.settings import get_settings, Settings
 
 logger = logging.getLogger(__name__)
 
-CONDITIONAL_CHECK_FAILED = 'ConditionalCheckFailedException'
+CONDITIONAL_CHECK_FAILED_CODE = 'ConditionalCheckFailedException'
 
 # Level 6 is zlib's default: the knee of the ratio/CPU curve. The payload is tens of KB, so this
 # costs microseconds against a network round trip — see the measurements in the design doc.
 COMPRESSION_LEVEL = 6
 
-SYNC_NOT_SUPPORTED = (
+SYNC_UNSUPPORTED_NOTICE = (
     'DynamoDBCheckpointer is async-only: aiobotocore has no synchronous client. Drive the graph '
     'with ainvoke/astream, which reach aget_tuple/aput/aput_writes/alist.'
 )
@@ -72,7 +72,7 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
         self._table: DynamoDBService | None = None
 
     @asynccontextmanager
-    async def opened(self) -> AsyncGenerator['DynamoDBCheckpointer', None]:
+    async def open_client(self) -> AsyncGenerator['DynamoDBCheckpointer', None]:
         """Hold the DynamoDB client open for the duration of the block.
 
         The app opens this once, in its lifespan; a test opens it around each test. That is the
@@ -100,7 +100,7 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
         if self._table is None:
             raise RuntimeError(
                 'DynamoDBCheckpointer is closed. The app opens it in its lifespan and tests open it '
-                'per test — see TestBaseAgentClass. Wrap the work in `async with checkpointer.opened()`.'
+                'per test — see TestBaseAgentClass. Wrap the work in `async with checkpointer.open_client()`.'
             )
         return self._table
 
@@ -130,16 +130,16 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
 
     # --- serialization ---------------------------------------------------------------------------
 
-    def _pack(self, value: Any) -> tuple[str, bytes]:
+    def _pack_value(self, value: Any) -> tuple[str, bytes]:
         """Serialize, then compress. The type tag is left alone — it routes deserialization, and it
         is a short string. Compression is what keeps a conversation clear of the 400 KB item limit
         and off a per-KB write bill; the design doc has the numbers."""
-        type_, payload = self.serde.dumps_typed(value)
-        return type_, zlib.compress(payload, COMPRESSION_LEVEL)
+        type_tag, payload = self.serde.dumps_typed(value)
+        return type_tag, zlib.compress(payload, COMPRESSION_LEVEL)
 
-    def _unpack(self, type_: str, payload: Any) -> Any:
+    def _unpack_value(self, type_tag: str, payload: Any) -> Any:
         """The inverse. ``payload`` arrives as a boto3 ``Binary``, hence ``bytes()``."""
-        return self.serde.loads_typed((type_, zlib.decompress(bytes(payload))))
+        return self.serde.loads_typed((type_tag, zlib.decompress(bytes(payload))))
 
     # --- reads -----------------------------------------------------------------------------------
 
@@ -151,14 +151,15 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
         checkpoint_id = get_checkpoint_id(config)
         if checkpoint_id:
             row = await table.get_item(
-                row_key(thread_id, CheckpointRow.sort_key(checkpoint_ns, checkpoint_id)),
+                build_row_key(thread_id, CheckpointRow.build_sort_key(checkpoint_ns, checkpoint_id)),
                 consistent_read=True,
             )
         else:
             # Descending with limit=1: DynamoDB reads the single newest row rather than the whole
             # partition. uuid6 ids sort chronologically, so the last one is the latest.
             rows = await table.query(
-                Key('pk').eq(thread_key(thread_id)) & Key('sk').begins_with(CheckpointRow.scan_prefix(checkpoint_ns)),
+                Key('pk').eq(build_thread_key(thread_id))
+                & Key('sk').begins_with(CheckpointRow.build_scan_prefix(checkpoint_ns)),
                 ascending=False,
                 limit=1,
                 consistent_read=True,
@@ -167,7 +168,7 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
 
         if row is None:
             return None
-        return await self._to_tuple(table, row)
+        return await self._build_checkpoint_tuple(table, row)
 
     async def alist(
         self,
@@ -181,39 +182,39 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
         if config is None:
             # Every thread in the table. An inspection path, not a request path.
             rows = await table.scan(
-                filter_expression=Attr('sk').begins_with(CheckpointRow.scan_prefix(None)),
+                filter_expression=Attr('sk').begins_with(CheckpointRow.build_scan_prefix(None)),
                 consistent_read=True,
             )
-            rows.sort(key=lambda item: item['checkpoint_id'], reverse=True)
+            rows.sort(key=lambda row: row['checkpoint_id'], reverse=True)
         else:
             rows = await table.query(
-                Key('pk').eq(thread_key(config['configurable']['thread_id']))
-                & Key('sk').begins_with(CheckpointRow.scan_prefix(config['configurable'].get('checkpoint_ns'))),
+                Key('pk').eq(build_thread_key(config['configurable']['thread_id']))
+                & Key('sk').begins_with(CheckpointRow.build_scan_prefix(config['configurable'].get('checkpoint_ns'))),
                 ascending=False,
                 consistent_read=True,
             )
 
         wanted_id = get_checkpoint_id(config) if config else None
         before_id = get_checkpoint_id(before) if before else None
-        yielded = 0
+        yielded_count = 0
         for row in rows:
             if wanted_id and row['checkpoint_id'] != wanted_id:
                 continue
             if before_id and row['checkpoint_id'] >= before_id:
                 continue
-            if limit is not None and yielded >= limit:
+            if limit is not None and yielded_count >= limit:
                 return
 
-            checkpoint_tuple = await self._to_tuple(table, row)
+            checkpoint_tuple = await self._build_checkpoint_tuple(table, row)
             # Metadata is an opaque serde blob, so DynamoDB cannot filter on it — this is the one
             # filter that has to happen after the read.
             if filter and not all(checkpoint_tuple.metadata.get(key) == value for key, value in filter.items()):
                 continue
 
-            yielded += 1
+            yielded_count += 1
             yield checkpoint_tuple
 
-    async def _to_tuple(self, table: DynamoDBService, row: dict[str, Any]) -> CheckpointTuple:
+    async def _build_checkpoint_tuple(self, table: DynamoDBService, row: dict[str, Any]) -> CheckpointTuple:
         """Rebuild a full ``CheckpointTuple`` from a checkpoint row.
 
         The channel values and the pending writes are two more round trips, and neither needs the
@@ -225,12 +226,14 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
         checkpoint_ns: str = row['checkpoint_ns']
         checkpoint_id: str = row['checkpoint_id']
 
-        checkpoint: Checkpoint = self._unpack(row['checkpoint_type'], row['checkpoint_value'])
-        async with asyncio.TaskGroup() as group:
-            blobs = group.create_task(self._load_blobs(table, thread_id, checkpoint_ns, checkpoint['channel_versions']))
-            writes = group.create_task(self._load_writes(table, thread_id, checkpoint_ns, checkpoint_id))
+        checkpoint: Checkpoint = self._unpack_value(row['checkpoint_type'], row['checkpoint_value'])
+        async with asyncio.TaskGroup() as task_group:
+            blobs_task = task_group.create_task(
+                self._load_blobs(table, thread_id, checkpoint_ns, checkpoint['channel_versions'])
+            )
+            writes_task = task_group.create_task(self._load_writes(table, thread_id, checkpoint_ns, checkpoint_id))
 
-        checkpoint['channel_values'] = blobs.result()
+        checkpoint['channel_values'] = blobs_task.result()
         parent_id = row.get('parent_checkpoint_id')
 
         return CheckpointTuple(
@@ -242,7 +245,7 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
                 }
             },
             checkpoint=checkpoint,
-            metadata=self._unpack(row['metadata_type'], row['metadata_value']),
+            metadata=self._unpack_value(row['metadata_type'], row['metadata_value']),
             parent_config=(
                 {
                     'configurable': {
@@ -254,7 +257,7 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
                 if parent_id
                 else None
             ),
-            pending_writes=writes.result(),
+            pending_writes=writes_task.result(),
         )
 
     async def _load_blobs(
@@ -273,12 +276,12 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
             return {}
 
         keys = [
-            row_key(thread_id, BlobRow.sort_key(checkpoint_ns, channel, version))
+            build_row_key(thread_id, BlobRow.build_sort_key(checkpoint_ns, channel, version))
             for channel, version in versions.items()
         ]
         rows = await table.batch_get(keys, consistent_read=True)
         return {
-            row['channel']: self._unpack(row['value_type'], row['value'])
+            row['channel']: self._unpack_value(row['value_type'], row['value'])
             for row in rows
             if row['value_type'] != EMPTY_TYPE
         }
@@ -291,14 +294,14 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
         checkpoint_id: str,
     ) -> list[PendingWrite]:
         rows = await table.query(
-            Key('pk').eq(thread_key(thread_id))
-            & Key('sk').begins_with(WriteRow.scan_prefix(checkpoint_ns, checkpoint_id)),
+            Key('pk').eq(build_thread_key(thread_id))
+            & Key('sk').begins_with(WriteRow.build_scan_prefix(checkpoint_ns, checkpoint_id)),
             consistent_read=True,
         )
         # Sorted here rather than by the sort key: idx can be negative, which a string sort gets
         # wrong. The order is the one Pregel replays the writes in, so it has to be deterministic.
-        rows.sort(key=lambda item: (item['task_path'], item['task_id'], int(item['idx'])))
-        return [(row['task_id'], row['channel'], self._unpack(row['value_type'], row['value'])) for row in rows]
+        rows.sort(key=lambda row: (row['task_path'], row['task_id'], int(row['idx'])))
+        return [(row['task_id'], row['channel'], self._unpack_value(row['value_type'], row['value'])) for row in rows]
 
     # --- writes ----------------------------------------------------------------------------------
 
@@ -319,14 +322,14 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
         # Only the channels that changed this superstep. Everything else stays where it is, and the
         # new checkpoint's channel_versions goes on pointing at those older blob rows.
         actions: list[TransactAction] = [
-            TransactPut(item=self._blob_row(thread_id, checkpoint_ns, channel, version, values))
+            TransactPut(item=self._build_blob_row(thread_id, checkpoint_ns, channel, version, values))
             for channel, version in new_versions.items()
         ]
 
-        checkpoint_type, checkpoint_value = self._pack(payload)
+        checkpoint_type, checkpoint_value = self._pack_value(payload)
         # get_checkpoint_metadata folds config['metadata'] and config['configurable'] into what is
         # stored; skipping it loses run_id and every custom config key.
-        metadata_type, metadata_value = self._pack(get_checkpoint_metadata(config, metadata))
+        metadata_type, metadata_value = self._pack_value(get_checkpoint_metadata(config, metadata))
         actions.append(
             TransactPut(
                 item=CheckpointRow(
@@ -353,7 +356,7 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
             }
         }
 
-    def _blob_row(
+    def _build_blob_row(
         self,
         thread_id: str,
         checkpoint_ns: str,
@@ -364,7 +367,7 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
         """One channel's value at one version. A channel listed in ``new_versions`` but absent from
         ``channel_values`` is stored as an explicit ``empty`` marker rather than skipped, so the
         read side can tell "no value here" from "row missing"."""
-        value_type, value = self._pack(values[channel]) if channel in values else (EMPTY_TYPE, b'')
+        value_type, value = self._pack_value(values[channel]) if channel in values else (EMPTY_TYPE, b'')
         return BlobRow(
             thread_id=thread_id,
             checkpoint_ns=checkpoint_ns,
@@ -388,8 +391,8 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
 
         rows: list[tuple[WriteRow, bool]] = []
         for position, (channel, value) in enumerate(writes):
-            idx = WRITES_IDX_MAP.get(channel, position)
-            value_type, value_bytes = self._pack(value)
+            write_index = WRITES_IDX_MAP.get(channel, position)
+            value_type, value_bytes = self._pack_value(value)
             rows.append(
                 (
                     WriteRow(
@@ -398,7 +401,7 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
                         checkpoint_id=checkpoint_id,
                         task_id=task_id,
                         task_path=task_path,
-                        idx=idx,
+                        idx=write_index,
                         channel=channel,
                         value_type=value_type,
                         value=value_bytes,
@@ -406,16 +409,16 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
                     # Regular writes: whoever got there first wins, so a retried task cannot
                     # overwrite what its earlier attempt committed. Special writes (negative idx:
                     # error, interrupt, resume, scheduled) replace the earlier one.
-                    idx >= 0,
+                    write_index >= 0,
                 )
             )
 
         # Independent rows, so they go out together. Not a transaction: a failed condition here
         # means "skip this one", not "abandon the batch".
         try:
-            async with asyncio.TaskGroup() as group:
-                for row, first_wins in rows:
-                    group.create_task(self._put_write(table, row, first_wins=first_wins))
+            async with asyncio.TaskGroup() as task_group:
+                for row, should_keep_first_write in rows:
+                    task_group.create_task(self._put_write(table, row, should_keep_first_write=should_keep_first_write))
         except* ClientError as failures:
             # A TaskGroup reports every failure as an ExceptionGroup, so an upstream
             # ``except ClientError`` — a LangGraph retry policy keyed on the botocore type among
@@ -433,21 +436,21 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
         # condition above, and the rest are written then.
 
     @staticmethod
-    async def _put_write(table: DynamoDBService, row: WriteRow, *, first_wins: bool) -> None:
+    async def _put_write(table: DynamoDBService, row: WriteRow, *, should_keep_first_write: bool) -> None:
         try:
-            await table.put_item(row, condition=Attr('sk').not_exists() if first_wins else None)
+            await table.put_item(row, condition=Attr('sk').not_exists() if should_keep_first_write else None)
         except ClientError as error:
-            if error.response['Error']['Code'] != CONDITIONAL_CHECK_FAILED:
+            if error.response['Error']['Code'] != CONDITIONAL_CHECK_FAILED_CODE:
                 raise
             # The write is already there. That is the de-duplication doing its job, not a failure.
 
     # --- the synchronous half ----------------------------------------------------------------------
 
     def get_tuple(self, config: RunnableConfig) -> CheckpointTuple | None:
-        raise NotImplementedError(SYNC_NOT_SUPPORTED)
+        raise NotImplementedError(SYNC_UNSUPPORTED_NOTICE)
 
     def list(self, config: RunnableConfig | None, **kwargs: Any) -> Any:
-        raise NotImplementedError(SYNC_NOT_SUPPORTED)
+        raise NotImplementedError(SYNC_UNSUPPORTED_NOTICE)
 
     def put(
         self,
@@ -456,7 +459,7 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
         metadata: CheckpointMetadata,
         new_versions: ChannelVersions,
     ) -> RunnableConfig:
-        raise NotImplementedError(SYNC_NOT_SUPPORTED)
+        raise NotImplementedError(SYNC_UNSUPPORTED_NOTICE)
 
     def put_writes(
         self,
@@ -465,7 +468,7 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
         task_id: str,
         task_path: str = '',
     ) -> None:
-        raise NotImplementedError(SYNC_NOT_SUPPORTED)
+        raise NotImplementedError(SYNC_UNSUPPORTED_NOTICE)
 
 
 @lru_cache

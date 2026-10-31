@@ -4,7 +4,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, computed_field, ConfigDict, Field
 
-from app.core.dynamodb.indexes import thread_key
+from app.core.dynamodb.indexes import build_thread_key
 
 
 class Role(StrEnum):
@@ -12,7 +12,7 @@ class Role(StrEnum):
     ASSISTANT = 'assistant'
 
 
-def utc_now() -> str:
+def format_utc_now() -> str:
     return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S.%fZ')
 
 
@@ -41,7 +41,7 @@ class MessageRow(BaseModel):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def pk(self) -> str:
-        return thread_key(self.user_id)
+        return build_thread_key(self.user_id)
 
     @computed_field  # type: ignore[prop-decorator]
     @property

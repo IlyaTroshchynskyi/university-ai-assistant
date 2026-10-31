@@ -71,7 +71,7 @@ class SlotsRepository(DynamoDBService):
             'gsi2pk = :g2',
             'gsi2sk = :g2s',
         ]
-        values: dict = {
+        expression_values: dict = {
             ':booked': SlotStatus.BOOKED,
             ':by': booked_by,
             ':topic': topic,
@@ -80,10 +80,10 @@ class SlotsRepository(DynamoDBService):
             ':g2s': f'{date}#{start_time}',
         }
         try:
-            updated = await self.update_item(
+            updated_row = await self.update_item(
                 key={KeyAttr.PK: date, KeyAttr.SK: f'{start_time}#{slot_id}'},
                 update_expression='SET ' + ', '.join(set_parts),
-                expression_values=values,
+                expression_values=expression_values,
                 expression_names={'#st': 'status'},
                 condition=Attr('status').eq(SlotStatus.OPEN),
             )
@@ -91,12 +91,12 @@ class SlotsRepository(DynamoDBService):
             if error.response['Error']['Code'] == 'ConditionalCheckFailedException':
                 return None  # not open (already booked / doesn't exist)
             raise
-        return Slot.model_validate(updated)
+        return Slot.model_validate(updated_row)
 
     async def cancel_slot(self, date: str, start_time: str, slot_id: int, booked_by: EmailStr) -> Slot | None:
         """Cancel ``booked_by``'s slot and free it again. ``None`` if there is no such booking."""
         try:
-            updated = await self.update_item(
+            updated_row = await self.update_item(
                 key={KeyAttr.PK: date, KeyAttr.SK: f'{start_time}#{slot_id}'},
                 update_expression='SET #st = :open, gsi1pk = :g1 REMOVE booked_by, gsi2pk, gsi2sk, topic',
                 expression_values={':open': SlotStatus.OPEN, ':g1': f'STATUS#{SlotStatus.OPEN}'},
@@ -107,7 +107,7 @@ class SlotsRepository(DynamoDBService):
             if error.response['Error']['Code'] == 'ConditionalCheckFailedException':
                 return None  # not booked, or booked by somebody else
             raise
-        return Slot.model_validate(updated)
+        return Slot.model_validate(updated_row)
 
 
 @asynccontextmanager
