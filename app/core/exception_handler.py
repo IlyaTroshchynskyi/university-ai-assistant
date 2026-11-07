@@ -4,17 +4,23 @@ from app.core.exceptions import (
     AlreadyExistError,
     ConflictingStatusError,
     DocumentTooLargeError,
+    InvalidInputError,
     NotFoundError,
     UnsupportedDocumentError,
 )
 
 
 def include_exception_handlers(app: FastAPI) -> None:
+    app.add_exception_handler(InvalidInputError, raise_bad_request)
     app.add_exception_handler(NotFoundError, raise_not_found)
     app.add_exception_handler(AlreadyExistError, raise_already_exists)
     app.add_exception_handler(ConflictingStatusError, raise_conflicting_status)
     app.add_exception_handler(UnsupportedDocumentError, raise_unsupported_media_type)
     app.add_exception_handler(DocumentTooLargeError, raise_content_too_large)
+
+
+def raise_bad_request(request: Request, error: InvalidInputError) -> None:
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(error) or 'Bad Request') from error
 
 
 def raise_not_found(request: Request, error: NotFoundError) -> None:

@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import Annotated, Iterator
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile  # noqa: TID251
+from fastapi import Depends, FastAPI, File, Form, UploadFile
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel
 
@@ -15,6 +15,7 @@ from app.api.v1.rooms.router import router as rooms_router
 from app.core.dynamodb.schemas import Slot, SlotStatus
 from app.core.dynamodb.slots_repository import open_slots_repository
 from app.core.exception_handler import include_exception_handlers
+from app.core.exceptions import InvalidInputError
 from app.lifespan import lifespan
 
 LOG_FORMAT = '%(asctime)s:%(levelname)s:%(module)s:[%(filename)s:%(lineno)d]:%(funcName)s:%(message)s'
@@ -100,7 +101,9 @@ async def ask(
 ) -> AskResponse:
     """Ask a question and/or upload documents (multipart/form-data). If any files are
     attached, the turn is routed to document verification."""
-    images = await asyncio.gather(*(f.read() for f in files or []))  # noqa: TID251
+    async with asyncio.TaskGroup() as task_group:
+        image_reads = [task_group.create_task(file.read()) for file in files or []]
+    images = [image_read.result() for image_read in image_reads]
     answer = await service.answer_question(question, session_id, images)
     return AskResponse(answer=answer)
 
@@ -117,7 +120,7 @@ async def ingest_document(
     ``admissions``) is an optional facet a search can later filter on.
     """
     if file.content_type != 'application/pdf' and not (file.filename or '').lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail='Only PDF files are supported.')
+        raise InvalidInputError('Only PDF files are supported.')
 
     source = file.filename or 'upload.pdf'
     ingest = knowledge.ingest_pdf_structured if structured else knowledge.ingest_pdf
@@ -134,7 +137,7 @@ async def slots(status: str | None = None) -> list[dict]:
             try:
                 wanted = SlotStatus(status)
             except ValueError:
-                raise HTTPException(status_code=400, detail=f'Unknown status {status!r}.')
+                raise InvalidInputError(f'Unknown status {status!r}.')
             found = await repo.list_slots_by_status(wanted)
         else:
             found = [Slot.model_validate(item) for item in await repo.scan()]

@@ -67,6 +67,25 @@ turning red. `eval-multiturn` seeds the two records it looks up; `eval-routing` 
 A metric may drive a change to `app/` only when it has found a genuine defect, never to make a
 number go green.
 
+## Writing a golden
+
+A question must ask for everything its expected answer states. `Correctness` wants every figure of
+the expected answer in the output, and `AnswerRelevancy` counts whatever the question did not ask
+for as an irrelevant statement, so a narrow question with a broad expected answer cannot pass both.
+Goldens 6, 13 and 14 were rewritten for this ("…, and what does it give?"). Goldens 11 and 16 still
+carry a milder version: the expected answer adds a fact the question did not ask for, the higher
+cutoffs of competitive programmes and the $500 housing deposit. The judge has scored it as relevant
+so far, so they are the first place to look when `AnswerRelevancy` fails on them.
+
+## After a chunking change
+
+Delete the handbook's points before re-ingesting it, then run `make eval` and compare, the table
+goldens (`make eval-tables`) first. A point's id is `uuid5` of `{source}:{index}`, so re-ingesting
+overwrites chunks in place only up to the new count: a splitter that produces fewer chunks leaves
+the old tail in the collection, still searchable, and a comparison over it is not valid. Drop the
+collection, or delete the points whose `source` is the handbook. This is done by hand; the suites
+only read.
+
 ## Reading a result
 
 The judge model and every threshold live in `tests/integration/config.py`, each with the
@@ -105,7 +124,10 @@ and the model, so run it after those change. Deliberately not measured:
   and asserting either would fail runs that are not defects. Tool lock-in is caught indirectly,
   because an answer from the wrong tool lacks the facts and fails `Outcome`;
 - `ConversationCompletenessMetric`, `TurnRelevancyMetric`, `RoleAdherenceMetric`: they score
-  manners, not facts, and three more holistic judges multiply the noise.
+  manners, not facts, and three more holistic judges multiply the noise;
+- `KnowledgeRetentionMetric`: tried and removed. It takes its knowledge from the user's turns only,
+  so every figure a retrieval assistant quotes counts as unsupported, and a conversation whose
+  answers were all correct scored 0.000. It fits a form-filling bot, not this one.
 
 `eval-booking` runs five conversations that book, are refused, are rejected by the reviewer, are
 moved by the reviewer, and cancel. Each seeds the slots it asserts on. Before either judge runs it

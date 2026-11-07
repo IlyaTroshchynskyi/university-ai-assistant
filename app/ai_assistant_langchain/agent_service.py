@@ -192,9 +192,10 @@ class AgentService:
             graph_input,
             config=self._build_run_config(user_id),
             context=AgentRunContext(user_id=user_id, documents=list(documents)),
-            # No `updates`: the pause arrives on the root `values` part, in its `interrupts` (P2).
+            # No `updates`: the pause arrives on the root `values` part, in its `interrupts` (P2 in
+            # docs/streaming.md).
             stream_mode=['messages', 'values'],
-            # Without it a subagent's answer arrives once, whole, instead of as tokens — P1.
+            # Without it a subagent's answer arrives once, whole, instead of as tokens (P1).
             subgraphs=True,
             version='v2',
         )

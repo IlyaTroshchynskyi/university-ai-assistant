@@ -37,7 +37,7 @@ tables, both keyed by `user_id`:
 
 Do not read one to answer for the other. Both are created by `make seed` only when missing and are
 never wiped by it: their rows are people's conversations, and nothing can rebuild them. Neither has
-retention yet.
+retention yet; why `agent_checkpoints` must not get a TTL is below.
 
 The state is in DynamoDB, but the app still runs as a single worker: which turns are in flight is
 kept in process memory (`runs.py`), see `docs/streaming.md`.
@@ -165,3 +165,16 @@ The larger argument is cost. DynamoDB bills writes per KB, rounded up, and `aput
 times per user message: a 300 KB item costs 300 WCU per write, so compressing to 20 KB turns about
 1500 WCU per message into 100. One `zlib.compress` on tens of KB costs microseconds against a
 network round trip. `COMPRESSION_LEVEL` in `saver.py` is zlib's default, 6.
+
+### No retention, and why not a TTL
+
+Nothing deletes old checkpoints or superseded blob rows; they accumulate, as they do under
+`PostgresSaver`, which leaves retention to the operator. A TTL on the rows is the obvious fix and
+the wrong one. DynamoDB's TTL is per item, and a channel that stops changing keeps the blob row of
+its last write, which every newer checkpoint goes on referencing. A conversation that outlives the
+TTL loses the blob of its least active channel, and loses it silently: `batch_get` returns only the
+rows it found, so the channel is simply missing from the state. Refreshing every referenced blob on
+every `aput` would cost an extra write per unchanged channel per superstep.
+
+Retention, when it is needed, is per thread: an `adelete_thread` for "clear my history", which the
+saver does not implement yet, and a job that deletes whole threads by their last activity.

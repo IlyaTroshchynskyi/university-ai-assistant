@@ -106,3 +106,39 @@ Two exceptions, both named rather than implied:
 
 Tests on these filters assert the event names, not only `done`, or a leak passes:
 `tests/api/test_chat_stream.py`.
+
+## What the filters rest on
+
+The filters above, and reading the pause off `values`, follow from measurements rather than from
+LangGraph's documentation. They were taken on `langgraph 1.2.10`, `langchain 1.3.14`,
+`langchain-core 1.5.3` and `fastapi 0.139.0`, against `build_main_graph()` with its checkpointer
+swapped for `InMemorySaver`, the real model, Qdrant and the dev slots, in six scenarios: a greeting
+with and without `subgraphs=True`, a `retriever` question, a `compare_programs` question, a booking
+that pauses, and a turn after 24 long messages of history. The script was throwaway, so this table
+is the record.
+
+After a LangGraph or LangChain upgrade, write the script again and check the table before trusting
+the filters. The suite cannot do that job: it scripts the model, so it catches a filter that
+stopped working, not a stream whose shape changed underneath the filters.
+
+| # | Question | Measured |
+|---|---|---|
+| P1 | Do the subagents' tokens reach the parent stream? | Only with `subgraphs=True`, at `ns == ('qa:<task_id>',)` under node `model`. Without it the answer arrives once, whole, as an `AIMessage` at the root under node `qa`. |
+| P2 | Does the router's call stream? | Yes, on every turn: `ns == ()`, node `__start__`, the raw routing JSON. |
+| P2 | Where does a pause appear? | In `updates` twice, at the subagent and at the root, and in the `interrupts` of the last `values` part at both levels. With `updates` left out of `stream_mode` the root `values` still carries it, which is why the stream asks for `['messages', 'values']` only. |
+| P3 | What arrives on `messages`? | `AIMessageChunk`s, whole `ToolMessage`s (a retriever result in one part, node `tools`), and from the summariser a `RemoveMessage` and a `HumanMessage`. The applicant's own message is not echoed. |
+| P3 | What does a `return_direct` tool stream? | Its tool call as empty `AIMessageChunk`s under `model`, then the work of its own graph, then the answer as one `ToolMessage` under `tools`. |
+| P3 | Does a graph a tool runs stream? | Yes: `compare_programs`' `merge` streamed 183 to 210 chunks at `ns == ('qa:<task_id>', 'tools:<task_id>')`, node `merge`. |
+| P4 | Where does `SummarizationMiddleware` stream? | Node `SummarizationMiddleware.before_model`, same `ns` as the subagent, as ordinary `AIMessageChunk`s carrying the summary. It is checked before every model call, so a turn past the trigger can summarise twice. |
+| P2, P3 | Is there a final root `values` part? | Always, and last, on a pause too. Its `messages` are what `ainvoke` returns. |
+| P5 | Can one route serve both representations? | Yes. `response_model=ChatSchemaOut` survives a `ChatSchemaOut \| EventSourceResponse` return annotation, and `/openapi.json` shows both. No `Accept` (httpx sends `*/*`) gets the JSON body. A tripped guard is `409 application/json` and a validation error `422 application/json`, even when SSE was asked for. |
+| P6 | Why not `fastapi.sse`? | Its `EventSourceResponse` encodes only for a generator endpoint, which cannot first answer 409 or JSON. Returned from a plain `async def` it fails with `AttributeError: 'ServerSentEvent' object has no attribute 'encode'`. `sse_starlette.ServerSentEvent` writes `str(data)`, hence `model_dump_json()`. |
+| P7 | Does a detached turn survive the client hanging up? | Yes: the turn ran to the end and wrote the transcript, and `runs.py` held nothing afterwards. |
+| P8 | Can a cancelled task still await a write in `finally`? | Once: the await after the `CancelledError` runs normally, and a second cancel needs `asyncio.shield`. The shutdown drain waits for running turns instead of cancelling them, so it does not depend on either. |
+
+What the suite cannot see: httpx's `ASGITransport` awaits the whole app before it returns a
+response, so `aiter_lines()` walks a turn that is already over, and the app is never sent
+`http.disconnect`. The tests assert which events came and in what order, never that they arrive
+one by one; only `make stream_turn` shows that. A mid-turn disconnect cannot be expressed through
+it at all, so `test_the_run_finishes_with_nobody_consuming_the_stream` starts the turn and never
+iterates `stream_events`.
