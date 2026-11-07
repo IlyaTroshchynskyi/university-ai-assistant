@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 CONDITIONAL_CHECK_FAILED_CODE = 'ConditionalCheckFailedException'
 
 # Level 6 is zlib's default: the knee of the ratio/CPU curve. The payload is tens of KB, so this
-# costs microseconds against a network round trip — see the measurements in the design doc.
+# costs microseconds against a network round trip — see the measurements in docs/conversation-memory.md.
 COMPRESSION_LEVEL = 6
 
 SYNC_UNSUPPORTED_NOTICE = (
@@ -133,7 +133,7 @@ class DynamoDBCheckpointer(BaseCheckpointSaver[str]):
     def _pack_value(self, value: Any) -> tuple[str, bytes]:
         """Serialize, then compress. The type tag is left alone — it routes deserialization, and it
         is a short string. Compression is what keeps a conversation clear of the 400 KB item limit
-        and off a per-KB write bill; the design doc has the numbers."""
+        and off a per-KB write bill; `docs/conversation-memory.md` has the numbers."""
         type_tag, payload = self.serde.dumps_typed(value)
         return type_tag, zlib.compress(payload, COMPRESSION_LEVEL)
 

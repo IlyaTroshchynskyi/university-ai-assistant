@@ -45,13 +45,13 @@ The criterion for splitting: **together** — if they are read by one query or s
 
 > A caveat: if a 'student' entity turns up later, along with a 'student plus their bookings in one request' query, co-locating bookings with the student will start to make sense. Until such a pattern exists, we don't merge them pre-emptively.
 
-**The access layer.** The existing `app/ai_assistant/dynamodb/base_service.py` (`DynamoDBService`) holds **the name of one table** and works with the generic `pk`/`sk` plus GSIs via `index_name`. For three tables we simply build three `DynamoDBService` instances (one per table) — no code changes needed.
+**The access layer.** The existing `app/core/dynamodb/base_service.py` (`DynamoDBService`) holds **the name of one table** and works with the generic `pk`/`sk` plus GSIs via `index_name`. For three tables we simply build three `DynamoDBService` instances (one per table) — no code changes needed.
 
 > One code change did turn out to be needed, and `03` makes it: a `TransactWriteItems` spanning two
 > tables (a programme and its faculty's dependant counter). Each transaction action gained an optional
 > `table`, since only our wrapper — not DynamoDB — assumed a single one.
 
-> Note: `DynamoDBService.query` does not currently forward `ScanIndexForward`. For 'top N by votes' (P11), or a schedule in reverse order, that parameter will have to be added.
+> `DynamoDBService.query` forwards `ScanIndexForward` as `ascending`, which 'top N by votes' (P19) uses; P11 has no code yet.
 
 ---
 
@@ -77,10 +77,14 @@ The **Table** column is as of `03-table-split.md`; the key columns are unchanged
 | P18 | Every class (a timetable question naming only a course, or only a weekday) | `academic_groups` | **Scan** + filter `begins_with(sk, SCHED#)` — no index selects classes by course or by weekday alone |
 | P9 | Open slots on a date (topic optional) | `appointment_slots` | base: `pk = {date}`, filter `status = open` (+ `topic`) |
 | P9b | Open slots by status (all dates) | `appointment_slots` | GSI1: `gsi1pk = STATUS#{status}` |
+| P9c | The earliest open slots from a date | `appointment_slots` | GSI1: `gsi1pk = STATUS#open`, `gsi1sk >= {date}`, `Limit = n` |
 | P10 | One student's bookings | `appointment_slots` | GSI2: `gsi2pk = STUDENT#{email}` |
 | P11 | Reports by category (top by votes) | `reported_issues` | base: `pk = {category}`, `ScanIndexForward=False` |
 | P12 | Reports by status | `reported_issues` | GSI1: `gsi1pk = STATUS#{status}` |
 | P19 | The most-voted reports, whatever their category or status | `reported_issues` | GSI1: P12 once per status, `ScanIndexForward=False`, `Limit = n`, the three merged by votes in the application. A GSI is eventually consistent, so a report filed a moment ago may not be listed yet |
+| P20 | Every programme | `programs` | **Scan** + filter `sk = #META` |
+| P21 | Every room | `rooms` | **Scan** + filter `sk = #META`, ordered in Python |
+| P22 | Every slot, whatever its status (`GET /slots`) | `appointment_slots` | **Scan**, no filter |
 
 ---
 
@@ -132,7 +136,7 @@ DynamoDB enforces uniqueness on the primary key and nowhere else. A faculty's ow
 
 So the name gets a primary key of its own: `pk = FACULTY_NAME#{name}`, `sk = #UNIQUE`, lowercased with whitespace collapsed (`FacultyNameItem`, `normalize_name`) so that 'Computer Science' and 'computer  science' land on the same key. `FacultyRepository.create_faculty` writes it and the faculty in one `TransactWriteItems`, conditioned on `attribute_not_exists(pk)` — the *second* action is the one a duplicate name fails on, which is how the cancelled transaction is told apart from any other. `delete_faculty` removes both rows, again transactionally: a reservation outliving its faculty would keep a name unusable for good.
 
-The row deliberately carries no `entity_type` and no GSI keys — nothing indexes it, and P16's `entity_type = faculty` filter steps over it rather than trying to read it as a faculty. The seed writes one per faculty (six rows) and refuses to load a `faculties.json` with a repeated name, which would otherwise collapse into whichever faculty came last and take every programme pointing at the other one with it.
+The row deliberately carries no `entity_type` and no GSI keys — nothing indexes it, and P16's `sk = #META` filter steps over it rather than trying to read it as a faculty. The seed writes one per faculty (six rows) and refuses to load a `faculties.json` with a repeated name, which would otherwise collapse into whichever faculty came last and take every programme pointing at the other one with it.
 
 #### Deleting a faculty
 
@@ -300,6 +304,6 @@ A single `pk = GROUP#1` query returns **all of those rows at once**, ordered by 
 2. **Model it in NoSQL Workbench** — check the partitions/GSIs visually, against the real data in `db/seed/`.
 3. **Create the tables** with their GSIs, billing mode `PAY_PER_REQUEST` for the dev environment; enable a **TTL** on `appointment_slots` over the `expires_at` attribute. *(Three when this was written — `university`, `appointment_slots`, `reported_issues`; nine since `03-table-split.md`, plus `agent_checkpoints`, which is created only when missing.)*
 4. **Write a seed → items loader** — transforming the JSON in `db/seed/` into items following the key maps (BatchWriteItem). Implemented in `db/load_dynamodb.py`.
-5. **Implement repositories on top of `DynamoDBService`** — one service instance per table, one method per access pattern (P1…P16), with `Key(...)`/`begins_with`.
-6. **Add a `ScanIndexForward` parameter to `DynamoDBService.query`** — needed for P11 (top reports) and for the schedule in reverse order.
+5. **Implement repositories on top of `DynamoDBService`** — one service instance per table, one method per access pattern (P1…P22), with `Key(...)`/`begins_with`.
+6. **Add a `ScanIndexForward` parameter to `DynamoDBService.query`** — needed for P11 (top reports) and for the schedule in reverse order. Done: `ascending`.
 7. **Decide on the 'student' entity** (note #3 in `01-relational-schema.md`): for now `booked_by` is just an email attribute; a full student profile could be introduced as a separate table or item type (`pk = STUDENT#{email}`) — and then co-locating bookings would make sense again.

@@ -203,12 +203,17 @@ rather than a lexicographic sort key.
 
 ## What this does not do
 
-- CRUD for courses, professors, groups and schedule — the `docs/specs/crud-roadmap.md` rungs.
-- The read patterns that still have no code (P1, P2, P3, P6, P8). The tables and keys serving them are
-  created and seeded; the repositories are not written here. `academic_groups` is therefore built for
-  a co-read that has no caller yet — accepted deliberately, since the alternative is to design the
-  split around the assumption that the schedule will never be implemented.
-- `ScanIndexForward` on `DynamoDBService.query`, whose only consumers are those unimplemented patterns.
+- CRUD for courses, professors, groups and schedule. What each owes when it is written, beyond the
+  `dependants` counter above:
+  - a group's delete takes its `SCHED#` rows with it: they share its partition, and nothing else
+    collects them;
+  - a professor rename rewrites the `GSI_NAME` key that `find_professors_by_name` reads;
+  - reassigning a course to another professor rewrites its `GSI2` keys;
+  - one room and one professor cannot hold two classes at the same weekday and time: the class is
+    written in one transaction with a lock row per room and per professor.
+- The read patterns that had no code then. P1 and P2 have since been written
+  (`app/api/v1/schedule/schedule_repository.py`); P3 to P8 and P11 have no repository method today.
+  The tables and keys serving them are created and seeded.
 - Archiving faculties instead of deleting them — a plausible replacement for the whole 409 path, but
   an API change rather than a modelling one.
 

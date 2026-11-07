@@ -1,6 +1,6 @@
 services:
   qdrant:
-    image: qdrant/qdrant:latest  # pin to a specific tag (e.g. v1.12.4) for reproducible builds
+    image: qdrant/qdrant:v1.18.2
     container_name: qdrant
     restart: unless-stopped
     ports:
@@ -10,7 +10,9 @@ services:
       - qdrant_storage:/qdrant/storage
 
   dynamodb:
-    image: amazon/dynamodb-local:latest  # pin to a specific tag for reproducible builds
+    # The digest of the :latest built 2026-01-19, the one the tests pass on. Swap it for a version tag
+    # once Docker Hub shows which one that is.
+    image: amazon/dynamodb-local@sha256:d89f8fcc6b1a39cb35976c248ed42a28c66ae00dc043099210f5571e42648ab4
     container_name: dynamodb
     restart: unless-stopped
     command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "./data"]

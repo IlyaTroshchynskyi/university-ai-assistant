@@ -45,7 +45,7 @@ MODEL_NODE = 'model'
 SUBAGENT_DEPTH = 1
 
 # A graph a tool runs is one namespace below the subagent, and its tokens are not the answer — with
-# one exception, ``compare_programs``, whose graph writes the answer itself (§4.4). The node is
+# one exception, ``compare_programs``, whose graph writes the answer itself (`docs/streaming.md`). The node is
 # imported rather than spelled again here, so renaming it there cannot leave this pointing at
 # nothing.
 TOOL_GRAPH_DEPTH = 2

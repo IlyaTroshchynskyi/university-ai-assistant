@@ -4,6 +4,14 @@ lint:
 	mypy --follow-imports=skip
 
 
+# Everything a change has to pass, fastest first. Writes nothing; needs the local DynamoDB.
+check:
+	ruff format --check --quiet
+	ruff check --quiet
+	mypy --follow-imports=skip --no-error-summary
+	pytest -q -p no:deepeval
+
+
 run_app:
 	uvicorn app.main:app --reload --port=8000
 
@@ -30,8 +38,8 @@ seed:
 
 # Every eval target makes real OpenAI calls and costs money. --log-cli-level is what makes
 # assert_metrics print the score table on passing runs too, so a near-miss is visible before it
-# turns into a failure. The two scoring suites also need Qdrant, and skip themselves with a reason
-# if the collection is empty; eval-routing gates on neither.
+# turns into a failure. The retriever, agent, multiturn and safety suites also need Qdrant, and
+# skip themselves with a reason if the collection is empty; eval-routing gates on neither.
 eval:
 	pytest tests/integration --run-eval --log-cli-level=INFO
 
@@ -65,7 +73,7 @@ eval-booking:
 eval-safety:
 	pytest tests/integration/test_safety_eval.py --run-eval --log-cli-level=INFO -v
 
-# The vision extractor on the two applicant sets tests/factories/applicant_factory.py draws: five
+# The vision extractor on the two applicant sets tests/factory_models/applicant_factory.py draws: five
 # images read by the real model, then judged by the rules and compared with the verdict each set
 # should get. No judges, no Qdrant and no DynamoDB.
 eval-documents:

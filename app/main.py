@@ -2,7 +2,7 @@ import asyncio
 import logging
 from typing import Annotated, Iterator
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile  # noqa: TID251
 from fastapi.openapi.utils import get_openapi
 from pydantic import BaseModel
 
@@ -100,7 +100,7 @@ async def ask(
 ) -> AskResponse:
     """Ask a question and/or upload documents (multipart/form-data). If any files are
     attached, the turn is routed to document verification."""
-    images = await asyncio.gather(*(f.read() for f in files or []))
+    images = await asyncio.gather(*(f.read() for f in files or []))  # noqa: TID251
     answer = await service.answer_question(question, session_id, images)
     return AskResponse(answer=answer)
 
