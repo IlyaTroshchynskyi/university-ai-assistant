@@ -2,7 +2,7 @@
 name = "crewai-university-assistant"
 version = "0.1.0"
 description = "University assistant using crewAI"
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.13,<3.14"
 dependencies = [
     "crewai[tools]>=1.15.1,<2.0.0",
     "python-dotenv>=1.0.0",
@@ -27,12 +27,6 @@ dependencies = [
     "sse-starlette>=3.4.5",
 ]
 
-[project.scripts]
-kickoff = "app.ai_assistant.main:kickoff"
-run_crew = "app.ai_assistant.main:kickoff"
-plot = "app.ai_assistant.main:plot"
-run_with_trigger = "app.ai_assistant.main:run_with_trigger"
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -51,7 +45,7 @@ asyncio_mode = "auto"
 
 [tool.ruff]
 line-length = 120
-target-version = "py311"
+target-version = "py313"
 exclude = [".venv"]
 
 [tool.ruff.format]
@@ -64,13 +58,22 @@ select = [
     "F", # Pyflakes
     "I", # isort
     "T20", # flake8-print
+    "TID251", # banned-api
 ]
 pydocstyle.convention = 'google'
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"fastapi.HTTPException".msg = "Raise a type from app/core/exceptions.py; app/core/exception_handler.py turns it into a status code."
+"fastapi.exceptions.HTTPException".msg = "Raise a type from app/core/exceptions.py; app/core/exception_handler.py turns it into a status code."
+"starlette.exceptions.HTTPException".msg = "Raise a type from app/core/exceptions.py; app/core/exception_handler.py turns it into a status code."
+"asyncio.gather".msg = "Use asyncio.TaskGroup; checkpointer/saver.py shows the except* unwrap."
 
 [tool.ruff.lint.per-file-ignores]
 # Standalone demo scripts, run by hand: their printed output is the deliverable, so T20 (no print)
 # does not apply. Nothing under examples/ is imported by app/ or tests/.
 "examples/*" = ["T20"]
+# The one place a domain exception becomes a status code.
+"app/core/exception_handler.py" = ["TID251"]
 
 [tool.ruff.lint.isort]
 known-local-folder = ["tests", "app", "scripts"]
@@ -85,14 +88,14 @@ force-sort-within-sections = true  # Don't sort straight-style imports before fr
 dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
-    "polyfactory>=3.3.0",  # tests/factories only — never imported by app/
+    "polyfactory>=3.3.0",  # tests/factory_models only — never imported by app/
     "deepeval>=3.9.6",  # tests/integration only — never imported by app/
     "mypy>=2.3.0",
 ]
 
 [tool.mypy]
 # Basic configuration
-python_version = "3.12"  # Target Python version for type checking
+python_version = "3.13"  # Target Python version for type checking
 #platform = "linux"      # Target platform for type checking
 
 # Files and modules to check

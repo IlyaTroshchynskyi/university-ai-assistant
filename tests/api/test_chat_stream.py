@@ -45,8 +45,8 @@ SSE_HEADERS = {'Accept': 'text/event-stream'}
 PATH_TO_COMPARE_MODEL_FACTORY = 'app.ai_assistant_langchain.agents.qa.compare_programs.nodes.get_chat_model'
 PATH_TO_COMPARE_KNOWLEDGE_SERVICE = 'app.ai_assistant_langchain.agents.qa.compare_programs.nodes.get_knowledge_service'
 
-# §4.4's node name, patched by the test that the whole `ToolMessage` still answers when the tool's
-# graph streams nothing this chat recognises.
+# The direct-answer node's name (`docs/streaming.md`), patched by the test that the whole
+# `ToolMessage` still answers when the tool's graph streams nothing this chat recognises.
 PATH_TO_DIRECT_ANSWER_NODE = 'app.ai_assistant_langchain.chat_service.DIRECT_ANSWER_NODE'
 
 PATH_TO_CHECKPOINTER = 'app.lifespan.get_checkpointer'
@@ -137,12 +137,12 @@ class TestTokenFilters:
         assert ChatService._is_answer_token(part) is True
 
     def test_the_router_json_is_not(self) -> None:
-        """§4.1 — it streams at the root on every single turn."""
+        """The router streams at the root on every single turn."""
         part = self._part(AIMessageChunk(content='{"destination": "qa"}'), (), '__start__')
         assert ChatService._is_answer_token(part) is False
 
     def test_a_graph_nested_in_a_tool_is_not(self) -> None:
-        """§4.1 — `compare_programs` runs its own graph one namespace deeper (P3)."""
+        """`compare_programs` runs its own graph one namespace deeper."""
         part = self._part(AIMessageChunk(content='### Economics'), ('qa:1', 'tools:2'), 'merge')
         assert ChatService._is_answer_token(part) is False
 
@@ -151,7 +151,7 @@ class TestTokenFilters:
         assert ChatService._is_answer_token(part) is False
 
     def test_the_summariser_is_not(self) -> None:
-        """§4.2 — same namespace, same message class, different node."""
+        """The summariser: same namespace, same message class, different node."""
         part = self._part(
             AIMessageChunk(content='Here is a summary'), ('qa:1',), 'SummarizationMiddleware.before_model'
         )
@@ -170,13 +170,13 @@ class TestTokenFilters:
         assert ChatService._is_answer_token(part) is False
 
     def test_the_comparison_graphs_own_tokens_are_the_answer(self) -> None:
-        """§4.4 — the one node one namespace down whose text is what the applicant asked for."""
+        """The one node one namespace down whose text is what the applicant asked for."""
         part = self._part(AIMessageChunk(content='### Economics'), ('qa:1', 'tools:2'), 'merge')
         assert ChatService._is_direct_answer_token(part) is True
 
     def test_another_node_in_a_tools_graph_is_not_a_direct_answer_token(self) -> None:
-        """A tool running a `create_agent` of its own has a node called `model`. §4.4 is one named
-        node, not "anything a tool streams"."""
+        """A tool running a `create_agent` of its own has a node called `model`. The direct answer is one
+        named node, not "anything a tool streams"."""
         part = self._part(AIMessageChunk(content='### Economics'), ('qa:1', 'tools:2'), 'model')
         assert ChatService._is_direct_answer_token(part) is False
 
@@ -453,7 +453,7 @@ class TestNothingButTheAnswerIsForwarded(TestBaseCheckpointerClass):
     async def test_a_return_direct_answer_streams_as_its_own_graph_writes_it(
         self, knowledge: StubKnowledgeService
     ) -> None:
-        """§4.4 — the comparison arrives while it is being written, not in one piece at the end."""
+        """The comparison arrives while it is being written, not in one piece at the end."""
         comparison = '### Economics vs Business Analytics\n- Economics is broader.'
         self.stub_model.replies = [
             compare_tool_call_reply('Economics', 'Business Analytics'),

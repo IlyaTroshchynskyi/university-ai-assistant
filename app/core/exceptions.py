@@ -1,6 +1,9 @@
 class BaseServiceError(Exception): ...
 
 
+class InvalidInputError(BaseServiceError): ...
+
+
 class NotFoundError(BaseServiceError): ...
 
 

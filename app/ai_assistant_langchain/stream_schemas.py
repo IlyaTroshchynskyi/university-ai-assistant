@@ -13,7 +13,7 @@ class TokenEvent(BaseModel):
 
 
 class ErrorEvent(BaseModel):
-    """`event: error` — the turn failed after the response had already started (§6.3)."""
+    """`event: error` — the turn failed after the response had already started (`docs/streaming.md`)."""
 
     detail: str = Field(
         description='What to show the applicant. Never a traceback: this is read by the person who asked.',
