@@ -13,7 +13,7 @@ class RetrieverToolInput(BaseModel):
     """Input schema for the RetrieverTool."""
 
     query: str = Field(
-        description="The user's question or search query about the university.",
+        description='A natural-language search query about the university.',
     )
 
 
@@ -21,7 +21,7 @@ class FindPersonToolInput(BaseModel):
     """Input schema for the FindPersonTool."""
 
     name: str = Field(
-        description='The full name or first name of the professor or staff member to look up.',
+        description='The full name or first name of the professor to look up, not a surname alone.',
     )
 
 
@@ -44,11 +44,11 @@ OptionalFilter = Annotated[str | None, BeforeValidator(_normalize_blank_filter)]
 class GetScheduleToolInput(BaseModel):
     group: OptionalFilter = Field(
         default=None,
-        description="The student group's code, exactly as the applicant gave it, e.g. 'CS-1'.",
+        description="The student group's code, e.g. 'CS-1'. Matched as the whole code, ignoring case.",
     )
     professor: OptionalFilter = Field(
         default=None,
-        description='The full name or first name of the professor whose classes are wanted.',
+        description='The full name or first name of the professor whose classes are wanted, not a surname alone.',
     )
     course: OptionalFilter = Field(
         default=None,
@@ -83,12 +83,12 @@ class CheckScholarshipToolInput(BaseModel):
     )
     faculty: Faculty | None = Field(
         default=None,
-        description='The faculty the programme the applicant named belongs to.',
+        description='The faculty the program the applicant named belongs to.',
     )
     annual_tuition: float | None = Field(
         default=None,
         gt=0,
-        description='The annual tuition of that programme in US dollars, as a plain number.',
+        description='The annual tuition of that program in US dollars, as a plain number.',
     )
 
 
@@ -106,8 +106,8 @@ class CompareProgramsToolInput(BaseModel):
 
     programs: list[str] = Field(
         description=(
-            'The programmes to compare, in the order the applicant named them, each named as they '
+            'The programs to compare, in the order the applicant named them, each named as they '
             'named it: ["Economics", "Business Analytics"]. The name on its own — no degree, no '
-            'faculty, and not the word "programme" appended to it. Between two and five.'
+            'faculty, and not the word "program" appended to it. Between two and five.'
         ),
     )

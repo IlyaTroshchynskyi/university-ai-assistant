@@ -61,9 +61,10 @@ How it works: `docs/applicant-documents.md`. What a change has to keep:
   against (`build_documents`, `build_broken_documents`), and they are about the documents on file
   only. What became of each file of the message is `file_outcomes`, which never changes `is_valid`.
 - `ISSUE_CODES` and the `FileOutcome` enum are the two vocabularies the model reads. A value added
-  to either has to be explained in the matching `Verdict` field description and in
-  `MAIN_CHAT_PROMPT`, the one place the model learns what they mean; `tests/unit/test_tool_texts.py`
-  fails until it is.
+  to either has to be explained in three places: the matching `Verdict` field description, for
+  whoever reads the code (the model never sees an output schema); the `validate_documents`
+  docstring, where the model learns what it means; and `MAIN_CHAT_PROMPT`, where it learns what to
+  tell the applicant. `tests/unit/test_tool_texts.py` checks the first and the last.
 
 ## Request path
 
