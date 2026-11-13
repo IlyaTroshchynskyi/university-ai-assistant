@@ -58,8 +58,9 @@ async def retriever(query: str) -> str:
     """Search the university knowledge base — the handbook — for the passages most relevant to a query.
 
     It holds the free-form information about the university: programs, courses, admissions,
-    tuition, fees, scholarships, deadlines and policies. Takes a natural-language query and returns
-    the matching passages as text.
+    tuition, fees, scholarships, deadlines and policies. It holds no staff records, no campus
+    locations or opening hours, no weekly class timetable and no student complaints. Returns the
+    few most relevant passages as text, or a sentence saying that nothing relevant was found.
     """
     logger.info('Retriever query: %r', query)
     return join_passages(await get_knowledge_service().search(query))
@@ -67,10 +68,12 @@ async def retriever(query: str) -> str:
 
 @tool(args_schema=FindPersonToolInput)
 async def find_person(name: str) -> list[dict] | str:
-    """Look up a professor or staff member by their name.
+    """Look up a professor by name.
 
-    Returns each match with their title, faculty, office/room, email and office hours, or a sentence
-    saying that nobody by that name was found.
+    Matches the start of the name, a title such as 'Dr.' or 'Professor' aside: a first name or a full
+    name finds them, a surname alone does not. Returns each match with their full name, title, email
+    and office hours, and the ids of their faculty and office room — internal record ids, not a
+    faculty name or a room number. When nobody matches, returns a sentence saying so.
     """
     async with open_professors_repository() as repository:
         professors = await repository.find_professors_by_name(name)
@@ -86,8 +89,8 @@ async def find_person(name: str) -> list[dict] | str:
 async def find_place(name: str) -> dict | str:
     """Look up a campus facility by its name: library, cafeteria, gym, admissions office, dormitory and the like.
 
-    Returns its building, floor and opening hours, or a sentence saying that no place by that name
-    was found.
+    Returns the first place whose name contains the given text, with its building, floor and opening
+    hours, or a sentence saying that no place by that name was found.
     """
     async with open_places_repository() as repository:
         place = await repository.find_place_by_name(name)
@@ -108,9 +111,9 @@ async def get_schedule(
 ) -> list[dict] | str:
     """Look up the weekly class timetable: which classes are held, when, where and by whom.
 
-    Filters by any of group, professor, course and weekday. Returns each matching class with its
-    course, group, professor, building, room number, weekday and start and end time, in timetable
-    order, or a sentence saying what was not found.
+    Filters by any of group, professor, course and weekday, and needs at least one of them. Returns
+    each matching class with its course, group, professor, building, room number, weekday and start
+    and end time, in timetable order, or a sentence saying what was not found.
     """
     filters = {'group': group, 'professor': professor, 'course': course, 'weekday': weekday}
     given_filters = {name: value for name, value in filters.items() if value}
@@ -144,11 +147,15 @@ async def check_scholarship(
 ) -> dict:
     """Apply the university's scholarship rules to one applicant's own facts, thresholds included.
 
+    It covers four scholarships: the Northwood Merit Scholarship, the Dean's Excellence Award, the
+    Need-Based Access Grant and the Women in STEM Scholarship. An entrance exam score below the
+    admission minimum fails every one of them.
+
     Returns every scholarship under exactly one of `qualified`, `missed` and `undecided`, each with
     its award and the rule that decided it; `undecided` means a fact the rule needs was not given.
     `awarded` is the one scholarship the applicant would hold, since a student holds one at a time,
     `awarded_reason` says why that one or what is missing to tell, and `tuition_after_award` is the
-    annual tuition left to pay with it.
+    annual tuition left to pay with it — tuition only: fees are not in it and are never discounted.
     """
     scholarship_check = check_scholarship_eligibility(
         gpa=gpa,
@@ -168,7 +175,31 @@ async def check_scholarship(
 
 @tool
 async def validate_documents(runtime: ToolRuntime[AgentRunContext, AssistantAgentState]) -> Command | str:
-    """Read the files attached to the applicant's message and check their admission documents against the rules."""
+    """Read the files attached to the applicant's message and check their admission documents against the rules.
+
+    Admission takes three documents, one file each: a passport, a tax code and a school certificate.
+    Each file of the message is read and told apart by what it shows. What was read is kept for the
+    rest of the conversation, a later file of a document takes the place of the earlier one, and
+    with no file attached it judges what was received before.
+
+    Returns `is_valid` and `issues`, which are about `documents_on_file`: every document received so
+    far, not only this message's files. `file_outcomes` has one entry per file of this message, in
+    the order attached, the same order as `extracted_fields`, the fields read off each file. Passport
+    numbers and tax ids come masked: all but their last two characters are asterisks.
+
+    `file_outcomes`: `added`, the document was not on file and now is; `replaced`, the file took the
+    place of an earlier file of the same document; `unchanged`, it reads exactly like the file of
+    that document already on file; `duplicate`, another file of this message is the same document,
+    so neither was taken; `unrecognized`, the file is none of the three documents and was not taken.
+
+    `issues`: `missing_document:<document>`, not received yet; `missing_field:<document>.<field>`,
+    the document does not show the field; `unreadable:<document>.<field>`, the field is there but
+    could not be read; `expired:<document>`, past its expiry date; `name_mismatch` and
+    `date_of_birth_mismatch`, the documents disagree on the name or the date of birth.
+
+    When the files cannot be read it returns a sentence saying so instead: nothing was checked and
+    nothing was kept.
+    """
     attached_files = runtime.context.documents
     try:
         extracted_fields = await extract_document_fields(attached_files, get_extractor())
@@ -228,7 +259,10 @@ async def list_common_issues(limit: int = DEFAULT_COMMON_ISSUE_COUNT) -> list[di
 async def report_issue(category: IssueCategory, text: str) -> dict:
     """File a problem a student reports on campus as a new issue: open, with no votes yet.
 
-    Returns the filed issue with its id, category, text, status and votes.
+    Nothing is filed until the student approves it, and they may edit the category and the text
+    first. Returns the filed issue with its id, category, text, status and votes. When the student
+    rejects it, nothing is filed and the answer is their reason, or a note that the call was
+    rejected.
     """
     async with open_issues_repository() as repository:
         created_issue = await repository.create_issue(IssueCreate(category=category, text=text))
@@ -239,11 +273,13 @@ async def report_issue(category: IssueCategory, text: str) -> dict:
 
 @tool(args_schema=CompareProgramsToolInput, return_direct=True)
 async def compare_programs(programs: list[str]) -> str:
-    """Compare two to five named study programmes side by side — focus, courses, duration, admission
+    """Compare two to five named study programs side by side — focus, courses, duration, admission
     requirements, tuition and career outcomes.
 
-    Looks every programme up itself and returns the finished comparison as text, which goes to the
-    applicant word for word and ends the turn.
+    Looks every program up itself and returns a general comparison as text, which goes to the
+    applicant word for word and ends the turn; it does not answer a narrower question about one
+    aspect. Given a single program it asks for a second one; past five, it compares the first five
+    and names the ones left out.
     """
     # Case-insensitively unique, in the order given. Two names for one programme is not a comparison:
     # each duplicate would search the same thing again and take a second block in a prompt whose

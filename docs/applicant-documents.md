@@ -90,8 +90,9 @@ The verdict also carries `documents_on_file`, what it judged, and `extracted_fie
 off each file of this message, in the order of the outcomes.
 
 `ISSUE_CODES` and `FileOutcome` are the two vocabularies the model reads. A value added to either is
-explained in the matching `Verdict` field description and in `MAIN_CHAT_PROMPT`;
-`tests/unit/test_tool_texts.py` fails until it is.
+explained in the matching `Verdict` field description (for developers: the model never sees an output
+schema), in the `validate_documents` docstring (what it means) and in `MAIN_CHAT_PROMPT` (what to
+tell the applicant); `tests/unit/test_tool_texts.py` checks the first and the last.
 
 ## Refusals and failures
 
